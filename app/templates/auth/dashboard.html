@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Overview{{ brand_name }}{% endblock %}
+
+{% block page_header %}
+<div style="display: flex; align-items: center; gap: 0.65rem;">
+  <h1 style="margin: 0; font-size: 1.05rem; font-weight: 600;">Workspace Overview</h1>
+  <span class="tf-pill">{{ org.name }}</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+  <div class="tf-card">
+    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Active Role</div>
+    <div style="font-size: 1.15rem; font-weight: 600; text-transform: capitalize;">
+      {{ current_user.role.replace('_', ' ') }}
+    </div>
+  </div>
+
+  <div class="tf-card">
+    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Recognition Tier</div>
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      {% if org.settings and org.settings.recognition_enabled %}
+        <span class="tf-pill tf-pill-done" style="text-transform: capitalize;">{{ current_user.current_tier }}</span>
+      {% else %}
+        <span class="tf-pill">Disabled by Workspace</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="tf-card">
+    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Assignment Mode</div>
+    <div style="font-size: 1.05rem; font-weight: 500; text-transform: capitalize;">
+      {{ org.settings.acceptance_mode if org.settings else 'strict' }} Handshake
+    </div>
+  </div>
+
+  <div class="tf-card">
+    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Active Projects</div>
+    <div style="font-size: 1.15rem; font-weight: 600;">{{ org.projects|length }}</div>
+  </div>
+</div>
+
+<div class="tf-card">
+  <h2 style="margin: 0 0 0.5rem; font-size: 1rem; font-weight: 600;">Welcome, {{ current_user.full_name }}</h2>
+  <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">
+    Your workspace is tenant-isolated under <strong>{{ org.name }}</strong>.
+    {% if current_user.is_super_admin %}
+      As a Super Admin, you can configure White-Label Branding, team invite codes, and workflow toggles in Workspace Settings.
+    {% endif %}
+  </p>
+</div>
+{% endblock %}

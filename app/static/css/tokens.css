@@ -1,0 +1,278 @@
+/* ============================================================================
+   TaskFlow Neurodivergent-Friendly Design Tokens (ADHD & OCD Safe)
+   - Low-arousal, low-contrast surfaces (zero pure #000000 or harsh neon)
+   - Subtle 1px structural borders & soft low-opacity status pills
+   ============================================================================ */
+
+:root,
+[data-theme="light"] {
+  /* Core Surfaces — Calm Alabaster & Sage */
+  --bg-main: #F7F7F5;
+  --bg-sidebar: #EFECE6;
+  --bg-card: #FFFFFF;
+  --bg-hover: #F1EFE9;
+  --border-subtle: #E2E0D8;
+
+  /* Typography */
+  --text-primary: #2D3134;
+  --text-secondary: #687076;
+  --text-on-accent: #FFFFFF;
+
+  /* Brand & Semantic Accents */
+  --accent-primary: #5B7C8D;
+  --accent-primary-tint: rgba(91, 124, 141, 0.12);
+
+  /* Status Tokens (Soft Tinted Pills — Never Solid Neon) */
+  --status-done: #6B8E78;
+  --status-done-bg: rgba(107, 142, 120, 0.14);
+  --status-done-border: rgba(107, 142, 120, 0.35);
+
+  --status-progress: #D4A359;
+  --status-progress-bg: rgba(212, 163, 89, 0.15);
+  --status-progress-border: rgba(212, 163, 89, 0.38);
+
+  --status-urgent: #C87A6B;
+  --status-urgent-bg: rgba(200, 122, 107, 0.14);
+  --status-urgent-border: rgba(200, 122, 107, 0.38);
+
+  /* Elevation & Layout */
+  --shadow-card: 0 1px 2px rgba(45, 49, 52, 0.04);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --sidebar-width: 248px;
+}
+
+[data-theme="dark"] {
+  /* Core Surfaces — Warm Charcoal & Sage */
+  --bg-main: #1C1E1D;
+  --bg-sidebar: #161817;
+  --bg-card: #252826;
+  --bg-hover: #2C302E;
+  --border-subtle: #323634;
+
+  /* Typography */
+  --text-primary: #E2E4E1;
+  --text-secondary: #989E9A;
+  --text-on-accent: #161817;
+
+  /* Brand & Semantic Accents */
+  --accent-primary: #7697A8;
+  --accent-primary-tint: rgba(118, 151, 168, 0.16);
+
+  /* Status Tokens (Soft Tinted Pills) */
+  --status-done: #7FA38B;
+  --status-done-bg: rgba(127, 163, 139, 0.16);
+  --status-done-border: rgba(127, 163, 139, 0.36);
+
+  --status-progress: #D4AA6A;
+  --status-progress-bg: rgba(212, 170, 106, 0.16);
+  --status-progress-border: rgba(212, 170, 106, 0.36);
+
+  --status-urgent: #D18778;
+  --status-urgent-bg: rgba(209, 135, 120, 0.16);
+  --status-urgent-border: rgba(209, 135, 120, 0.36);
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* ============================================================================
+   Base Reset & Calm Surface Styling
+   ============================================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* App Shell Layout */
+.tf-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.tf-sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 1rem;
+  flex-shrink: 0;
+}
+
+.tf-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.25rem 0.5rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 1rem;
+  text-decoration: none;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.tf-brand-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: 1px solid var(--border-subtle);
+}
+
+.tf-brand-monogram {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background-color: var(--accent-primary-tint);
+  color: var(--accent-primary);
+  border: 1px solid var(--border-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.tf-main-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tf-topbar {
+  height: 58px;
+  background-color: var(--bg-main);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+}
+
+.tf-content {
+  padding: 1.5rem;
+  max-width: 1440px;
+  width: 100%;
+}
+
+/* Calm Cards & Buttons */
+.tf-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 1rem 1.15rem;
+}
+
+.tf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.tf-btn:hover {
+  background-color: var(--bg-hover);
+}
+
+.tf-btn-primary {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.tf-btn-primary:hover {
+  opacity: 0.92;
+  background-color: var(--accent-primary);
+}
+
+/* Low-Opacity Tinted Status Pills (Zero Neon) */
+.tf-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  background-color: var(--bg-hover);
+}
+
+.tf-pill-done {
+  color: var(--status-done);
+  background-color: var(--status-done-bg);
+  border-color: var(--status-done-border);
+}
+
+.tf-pill-progress {
+  color: var(--status-progress);
+  background-color: var(--status-progress-bg);
+  border-color: var(--status-progress-border);
+}
+
+.tf-pill-urgent {
+  color: var(--status-urgent);
+  background-color: var(--status-urgent-bg);
+  border-color: var(--status-urgent-border);
+}
+
+.tf-pill-pending {
+  border-style: dashed;
+  color: var(--text-secondary);
+  background-color: transparent;
+}
+
+/* Calm Flash Alerts */
+.tf-flash {
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-card);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.tf-flash-warning,
+.tf-flash-danger {
+  background-color: var(--status-urgent-bg);
+  border-color: var(--status-urgent-border);
+  color: var(--text-primary);
+}
+
+.tf-flash-success {
+  background-color: var(--status-done-bg);
+  border-color: var(--status-done-border);
+  color: var(--text-primary);
+}
+
+.tf-flash-info {
+  background-color: var(--accent-primary-tint);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}

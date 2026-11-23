@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Projects — {{ brand_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tf-projects-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .tf-projects-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+  .tf-project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+  .tf-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-bottom: 0.85rem;
+  }
+  .tf-label {
+    font-size: 0.83rem;
+    font-weight: 500;
+  }
+  .tf-input,
+  .tf-select,
+  .tf-textarea {
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    font-family: inherit;
+  }
+</style>
+{% endblock %}
+
+{% block page_header %}
+<div style="display: flex; align-items: center; gap: 0.65rem;">
+  <h1 style="margin: 0; font-size: 1.05rem; font-weight: 600;">Workspace Projects</h1>
+  <span class="tf-pill">{{ projects|length }} Total</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="tf-projects-layout">
+  <div>
+    {% if projects %}
+      <div class="tf-project-grid">
+        {% for proj in projects %}
+          {% set top_tasks = proj.tasks|selectattr('parent_task_id', 'none')|list %}
+          {% set done_tasks = top_tasks|selectattr('board_status', 'equalto', 'done')|list %}
+          <div class="tf-card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 0.85rem;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.4rem;">
+                <h2 style="margin: 0; font-size: 1rem; font-weight: 600;">
+                  <a href="{{ url_for('projects.board', project_id=proj.id) }}" style="color: var(--text-primary); text-decoration: none;">
+                    {{ proj.title }}
+                  </a>
+                </h2>
+                <span class="tf-pill {% if proj.status == 'completed' %}tf-pill-done{% else %}tf-pill-progress{% endif %}" style="text-transform: capitalize;">
+                  {{ proj.status }}
+                </span>
+              </div>
+
+              {% if proj.description %}
+                <p style="margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--text-secondary);">
+                  {{ proj.description[:130] }}{% if proj.description|length > 130 %}…{% endif %}
+                </p>
+              {% endif %}
+
+              <div style="font-size: 0.8rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.25rem;">
+                <span>Lead: <strong style="color: var(--text-primary);">{{ proj.lead.full_name }}</strong></span>
+                <span>Target Date: <strong style="color: var(--text-primary);">{{ proj.est_completion_date.strftime('%Y-%m-%d') }}</strong></span>
+                <span>Deliverables: <strong style="color: var(--text-primary);">{{ done_tasks|length }}/{{ top_tasks|length }}</strong> completed</span>
+              </div>
+            </div>
+
+            <a href="{{ url_for('projects.board', project_id=proj.id) }}" class="tf-btn tf-btn-primary" style="justify-content: center;">
+              Open Kanban Board
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="tf-card">
+        <h2 style="margin: 0 0 0.35rem; font-size: 1rem;">No projects yet</h2>
+        <p style="margin: 0; font-size: 0.88rem; color: var(--text-secondary);">
+          {% if current_user.role in ('super_admin', 'project_lead') %}
+            Create your first project using the panel on the right to start organizing tasks.
+          {% else %}
+            Ask a Project Lead or Super Admin to create a project and assign tasks.
+          {% endif %}
+        </p>
+      </div>
+    {% endif %}
+
+    {% if templates %}
+      <div class="tf-card" style="margin-top: 1.25rem;">
+        <h3 style="margin: 0 0 0.35rem; font-size: 0.95rem; font-weight: 600;">Saved Project Templates</h3>
+        <p style="margin: 0 0 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
+          Reusable task blueprints with automatic date clamping to your project completion target.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+          {% for tpl in templates %}
+            <div style="padding: 0.55rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong style="font-size: 0.88rem;">{{ tpl.name }}</strong>
+                {% if tpl.description %}
+                  <div style="font-size: 0.78rem; color: var(--text-secondary);">{{ tpl.description }}</div>
+                {% endif %}
+              </div>
+              <span class="tf-pill">{{ (tpl.template_payload.get('tasks') or [])|length }} task(s)</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if current_user.role in ('super_admin', 'project_lead') %}
+    <div class="tf-card">
+      <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">New Project</h2>
+      <p style="margin: 0 0 1rem; font-size: 0.8rem; color: var(--text-secondary);">
+        Sets the Master Date Cap for all tasks and subtasks inside this project.
+      </p>
+
+      <form method="POST" novalidate>
+        {{ form.hidden_tag() }}
+
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.title.id }}">{{ form.title.label.text }}</label>
+          {{ form.title(class="tf-input", placeholder="e.g., Spring Collection Launch") }}
+        </div>
+
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.est_completion_date.id }}">{{ form.est_completion_date.label.text }}</label>
+          {{ form.est_completion_date(class="tf-input", type="date") }}
+        </div>
+
+        {% if current_user.is_super_admin %}
+          <div class="tf-field">
+            <label class="tf-label" for="{{ form.lead_id.id }}">{{ form.lead_id.label.text }}</label>
+            {{ form.lead_id(class="tf-select") }}
+          </div>
+        {% endif %}
+
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.template_id.id }}">{{ form.template_id.label.text }}</label>
+          {{ form.template_id(class="tf-select") }}
+        </div>
+
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.description.id }}">{{ form.description.label.text }}</label>
+          {{ form.description(class="tf-textarea", rows="3", placeholder="Optional goals and deliverables...") }}
+        </div>
+
+        <button type="submit" class="tf-btn tf-btn-primary" style="width: 100%; justify-content: center;">
+          Create Project
+        </button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

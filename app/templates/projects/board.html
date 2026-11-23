@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} — {{ brand_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tf-board-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .tf-kanban-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(260px, 1fr));
+    gap: 1rem;
+    align-items: start;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+  }
+  .tf-column {
+    background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+    min-height: 460px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .tf-column.tf-drop-active {
+    border-color: var(--accent-primary);
+    background-color: var(--accent-primary-tint);
+  }
+  .tf-column-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.2rem 0.25rem 0.45rem;
+    border-bottom: 1px solid var(--border-subtle);
+    font-weight: 600;
+    font-size: 0.88rem;
+  }
+  .tf-task-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    box-shadow: var(--shadow-card);
+    cursor: grab;
+  }
+  .tf-task-card:active {
+    cursor: grabbing;
+  }
+  .tf-task-card.tf-card-pending {
+    border-style: dashed;
+  }
+  .tf-task-card.tf-card-blocked {
+    border-left: 3px solid var(--status-urgent);
+  }
+  .tf-subtask-box {
+    margin-top: 0.55rem;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .tf-mini-input,
+  .tf-mini-select {
+    width: 100%;
+    padding: 0.38rem 0.55rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+  }
+  details > summary {
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: var(--accent-primary);
+    user-select: none;
+    margin-top: 0.5rem;
+  }
+</style>
+{% endblock %}
+
+{% block page_header %}
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem;">
+  <a href="{{ url_for('projects.index') }}" style="color: var(--text-secondary); text-decoration: none; font-size: 0.85rem;">
+    Projects
+  </a>
+  <span style="color: var(--text-secondary);">/</span>
+  <h1 style="margin: 0; font-size: 1.05rem; font-weight: 600;">{{ project.title }}</h1>
+  <span class="tf-pill">Target: {{ project.est_completion_date.strftime('%Y-%m-%d') }}</span>
+  <span class="tf-pill">Lead: {{ project.lead.full_name }}</span>
+</div>
+{% endblock %}
+
+{% block content %}
+{% set is_lead_or_admin = current_user.is_super_admin or project.lead_id == current_user.id %}
+
+<!-- Collapsible Project Controls (Create Task & Templates) -->
+<div class="tf-board-toolbar">
+  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+    {% if is_lead_or_admin %}
+      <details class="tf-card" style="padding: 0.55rem 0.85rem;">
+        <summary style="margin: 0; font-weight: 600; font-size: 0.84rem;">+ New Top-Level Task</summary>
+        <form method="POST" action="{{ url_for('board.create', project_id=project.id) }}" style="margin-top: 0.75rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; min-width: 320px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <input type="text" name="title" class="tf-mini-input" placeholder="Deliverable title" required />
+          <input type="date" name="due_date" class="tf-mini-input" max="{{ project.est_completion_date.strftime('%Y-%m-%d') }}" required />
+          <select name="priority" class="tf-mini-select">
+            <option value="low">Low Priority</option>
+            <option value="medium" selected>Medium Priority</option>
+            <option value="high">High Priority</option>
+            <option value="critical">Critical Priority</option>
+          </select>
+          <select name="assignee_id" class="tf-mini-select">
+            <option value="">Unassigned</option>
+            {% for m in members %}
+              <option value="{{ m.id }}">{{ m.full_name }}</option>
+            {% endfor %}
+          </select>
+          <input type="text" name="description" class="tf-mini-input" placeholder="Optional notes" />
+          <button type="submit" class="tf-btn tf-btn-primary" style="justify-content: center;">Add Task</button>
+        </form>
+      </details>
+
+      <details class="tf-card" style="padding: 0.55rem 0.85rem;">
+        <summary style="margin: 0; font-weight: 600; font-size: 0.84rem;">Templates</summary>
+        <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 280px;">
+          {% if templates %}
+            <form method="POST" action="{{ url_for('projects.apply_template', project_id=project.id) }}" style="display: flex; gap: 0.45rem;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <select name="template_id" class="tf-mini-select">
+                {% for tpl in templates %}
+                  <option value="{{ tpl.id }}">{{ tpl.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="tf-btn">Apply</button>
+            </form>
+          {% endif %}
+
+          <form method="POST" action="{{ url_for('projects.save_template', project_id=project.id) }}" style="display: flex; gap: 0.45rem;">
+            {{ template_form.hidden_tag() }}
+            {{ template_form.name(class="tf-mini-input", placeholder="Save board as template...") }}
+            <button type="submit" class="tf-btn tf-btn-primary">Save</button>
+          </form>
+        </div>
+      </details>
+    {% endif %}
+  </div>
+
+  <div id="tf-board-feedback" style="font-size: 0.82rem; color: var(--text-secondary);"></div>
+</div>
+
+<!-- 4-Column Calm Kanban Board -->
+<div class="tf-kanban-grid">
+  {% for col_key in ['todo', 'in_progress', 'review', 'done'] %}
+    {% set col_tasks = columns[col_key] %}
+    <section class="tf-column" data-status="{{ col_key }}" aria-label="{{ column_labels[col_key] }}">
+      <div class="tf-column-header">
+        <span>{{ column_labels[col_key] }}</span>
+        <span class="tf-pill">{{ col_tasks|length }}</span>
+      </div>
+
+      {% for task in col_tasks %}
+        <article
+          class="tf-task-card {% if task.assignment_status == 'pending' %}tf-card-pending{% endif %} {% if task.is_blocked %}tf-card-blocked{% endif %}"
+          draggable="true"
+          data-task-id="{{ task.id }}"
+          data-current-status="{{ task.board_status }}"
+        >
+          <!-- Top Metadata Pills -->
+          <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.45rem;">
+            <span class="tf-pill {% if task.priority in ('high', 'critical') %}tf-pill-urgent{% elif task.priority == 'medium' %}tf-pill-progress{% endif %}" style="text-transform: capitalize;">
+              {{ task.priority }}
+            </span>
+
+            {% if task.is_blocked %}
+              <span class="tf-pill tf-pill-urgent" style="text-transform: capitalize;">
+                Blocked ({{ task.blocker_type }})
+              </span>
+            {% endif %}
+
+            {% if task.assignment_status == 'pending' %}
+              <span class="tf-pill tf-pill-pending">
+                Pending{% if task.id in expired_pending_ids %} · SLA Overdue{% endif %}
+              </span>
+            {% elif task.assignment_status == 'declined' %}
+              <span class="tf-pill tf-pill-urgent">Declined</span>
+            {% endif %}
+
+            {% if task.has_internal_extension %}
+              <span class="tf-pill tf-pill-progress">Extended (Internal)</span>
+            {% endif %}
+          </div>
+
+          <!-- Title & Due Date -->
+          <div style="font-weight: 600; font-size: 0.92rem; margin-bottom: 0.25rem;">{{ task.title }}</div>
+          {% if task.description %}
+            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.45rem;">{{ task.description }}</div>
+          {% endif %}
+
+          <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-secondary);">
+            <span>Due: <strong style="color: var(--text-primary);">{{ task.due_date.strftime('%Y-%m-%d') }}</strong></span>
+            <span>{{ task.assignee.full_name if task.assignee else 'Unassigned' }}</span>
+          </div>
+
+          {% if task.is_blocked and task.blocker_reason %}
+            <div style="margin-top: 0.45rem; padding: 0.4rem 0.55rem; border-radius: var(--radius-sm); background-color: var(--status-urgent-bg); font-size: 0.78rem;">
+              <strong>Blocker:</strong> {{ task.blocker_reason }}
+            </div>
+          {% endif %}
+
+          <!-- Strict Handshake Prompt for Pending Assignee -->
+          {% if task.assignment_status == 'pending' and task.assignee_id == current_user.id %}
+            <div style="margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px dashed var(--border-subtle); display: flex; flex-direction: column; gap: 0.4rem;">
+              <form method="POST" action="{{ url_for('board.respond', task_id=task.id) }}" style="display: flex; gap: 0.4rem;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <input type="hidden" name="decision" value="confirm" />
+                <button type="submit" class="tf-btn tf-btn-primary" style="flex: 1; justify-content: center; font-size: 0.78rem;">
+                  Accept Task
+                </button>
+              </form>
+              <form method="POST" action="{{ url_for('board.respond', task_id=task.id) }}" style="display: flex; gap: 0.35rem;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <input type="hidden" name="decision" value="decline" />
+                <input type="text" name="decline_reason" class="tf-mini-input" placeholder="Decline reason..." required />
+                <button type="submit" class="tf-btn" style="font-size: 0.78rem;">Decline</button>
+              </form>
+            </div>
+          {% endif %}
+
+          <!-- Nested 2-Tier Subtasks -->
+          {% if task.subtasks %}
+            <div class="tf-subtask-box">
+              <div style="font-size: 0.74rem; color: var(--text-secondary); font-weight: 500;">
+                Subtasks ({{ task.subtasks|selectattr('board_status', 'equalto', 'done')|list|length }}/{{ task.subtasks|length }})
+              </div>
+              {% for sub in task.subtasks %}
+                <div style="padding: 0.4rem 0.5rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background-color: var(--bg-main); font-size: 0.79rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.35rem;">
+                    <span style="{% if sub.board_status == 'done' %}text-decoration: line-through; color: var(--text-secondary);{% endif %}">
+                      {{ sub.title }}
+                    </span>
+                    <form method="POST" action="{{ url_for('board.move', task_id=sub.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                      <select name="board_status" class="tf-mini-select" style="padding: 0.15rem 0.3rem; font-size: 0.74rem;" onchange="this.form.submit()">
+                        {% for s_key in ['todo', 'in_progress', 'review', 'done'] %}
+                          <option value="{{ s_key }}" {% if sub.board_status == s_key %}selected{% endif %}>{{ column_labels[s_key] }}</option>
+                        {% endfor %}
+                      </select>
+                    </form>
+                  </div>
+                  <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
+                    Due {{ sub.due_date.strftime('%Y-%m-%d') }} · {{ sub.assignee.full_name if sub.assignee else 'Unassigned' }}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <!-- Collapsible Progressive-Disclosure Drawer (Move, Subtask, Blocker, Extend, Comments) -->
+          <details>
+            <summary>Details &amp; Actions</summary>
+            <div style="margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 0.65rem;">
+              <!-- Keyboard-Accessible Status Move Fallback -->
+              <form method="POST" action="{{ url_for('board.move', task_id=task.id) }}" style="display: flex; gap: 0.35rem;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <select name="board_status" class="tf-mini-select">
+                  {% for s_key in ['todo', 'in_progress', 'review', 'done'] %}
+                    <option value="{{ s_key }}" {% if task.board_status == s_key %}selected{% endif %}>Move to {{ column_labels[s_key] }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="tf-btn" style="font-size: 0.76rem;">Move</button>
+              </form>
+
+              <!-- Reassign (Lead/Admin) -->
+              {% if is_lead_or_admin %}
+                <form method="POST" action="{{ url_for('board.reassign', task_id=task.id) }}" style="display: flex; gap: 0.35rem;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <select name="assignee_id" class="tf-mini-select">
+                    <option value="">Unassigned</option>
+                    {% for m in members %}
+                      <option value="{{ m.id }}" {% if task.assignee_id == m.id %}selected{% endif %}>{{ m.full_name }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="tf-btn" style="font-size: 0.76rem;">Assign</button>
+                </form>
+              {% endif %}
+
+              <!-- Add Subtask (Lead/Admin or Task Assignee) -->
+              {% if is_lead_or_admin or task.assignee_id == current_user.id %}
+                <form method="POST" action="{{ url_for('board.create', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <input type="hidden" name="parent_task_id" value="{{ task.id }}" />
+                  <input type="text" name="title" class="tf-mini-input" placeholder="New subtask title..." required />
+                  <div style="display: flex; gap: 0.35rem;">
+                    <input type="date" name="due_date" class="tf-mini-input" max="{{ task.due_date.strftime('%Y-%m-%d') }}" required />
+                    <select name="assignee_id" class="tf-mini-select">
+                      <option value="">Unassigned</option>
+                      {% for m in members %}
+                        <option value="{{ m.id }}">{{ m.full_name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <button type="submit" class="tf-btn" style="font-size: 0.76rem; justify-content: center;">+ Add Subtask</button>
+                </form>
+              {% endif %}
+
+              <!-- Blocker Flag Toggle -->
+              {% if is_lead_or_admin or task.assignee_id == current_user.id %}
+                {% if not task.is_blocked %}
+                  <form method="POST" action="{{ url_for('board.blocker', task_id=task.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                    <input type="hidden" name="action" value="set" />
+                    <div style="display: flex; gap: 0.35rem;">
+                      <select name="blocker_type" class="tf-mini-select">
+                        <option value="client">Client Blocker</option>
+                        <option value="internal">Internal Blocker</option>
+                        <option value="external">External Blocker</option>
+                      </select>
+                      <input type="text" name="blocker_reason" class="tf-mini-input" placeholder="Why blocked?" required />
+                    </div>
+                    <button type="submit" class="tf-btn" style="font-size: 0.76rem; justify-content: center;">Flag Blocker</button>
+                  </form>
+                {% else %}
+                  <form method="POST" action="{{ url_for('board.blocker', task_id=task.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                    <input type="hidden" name="action" value="clear" />
+                    <button type="submit" class="tf-btn" style="width: 100%; font-size: 0.76rem; justify-content: center;">Clear Blocker</button>
+                  </form>
+                {% endif %}
+              {% endif %}
+
+              <!-- Deadline Extension (Lead/Admin Only) -->
+              {% if is_lead_or_admin %}
+                <form method="POST" action="{{ url_for('board.extend', task_id=task.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <div style="font-size: 0.74rem; color: var(--text-secondary);">Extend Due Date (Max {{ project.est_completion_date.strftime('%Y-%m-%d') }})</div>
+                  <div style="display: flex; gap: 0.35rem;">
+                    <input type="date" name="new_due_date" class="tf-mini-input" min="{{ task.due_date.strftime('%Y-%m-%d') }}" max="{{ project.est_completion_date.strftime('%Y-%m-%d') }}" required />
+                    <select name="extension_type" class="tf-mini-select">
+                      <option value="client_blocked">Client-Blocked (Keeps Bonus)</option>
+                      <option value="internal">Internal Delay (Reduces Bonus)</option>
+                    </select>
+                  </div>
+                  <input type="text" name="reason" class="tf-mini-input" placeholder="Audit reason for extension..." required />
+                  <button type="submit" class="tf-btn" style="font-size: 0.76rem; justify-content: center;">Approve Extension</button>
+                </form>
+              {% endif %}
+
+              <!-- Comments -->
+              <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                {% for cmt in task.comments[-3:] %}
+                  <div style="font-size: 0.76rem; padding: 0.35rem 0.5rem; background-color: var(--bg-main); border-radius: var(--radius-sm);">
+                    <strong>{{ cmt.author.full_name }}:</strong> {{ cmt.body }}
+                  </div>
+                {% endfor %}
+                <form method="POST" action="{{ url_for('board.comment', task_id=task.id) }}" style="display: flex; gap: 0.35rem;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <input type="text" name="body" class="tf-mini-input" placeholder="Add comment..." required />
+                  <button type="submit" class="tf-btn" style="font-size: 0.76rem;">Post</button>
+                </form>
+              </div>
+            </div>
+          </details>
+        </article>
+      {% endfor %}
+    </section>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var csrfToken = csrfMeta ? csrfMeta.getAttribute("content") : "";
+    var feedback = document.getElementById("tf-board-feedback");
+    var draggedCard = null;
+
+    document.querySelectorAll(".tf-task-card").forEach(function (card) {
+      card.addEventListener("dragstart", function (e) {
+        draggedCard = card;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", card.dataset.taskId);
+      });
+      card.addEventListener("dragend", function () {
+        draggedCard = null;
+      });
+    });
+
+    document.querySelectorAll(".tf-column").forEach(function (col) {
+      col.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        col.classList.add("tf-drop-active");
+      });
+      col.addEventListener("dragleave", function () {
+        col.classList.remove("tf-drop-active");
+      });
+      col.addEventListener("drop", function (e) {
+        e.preventDefault();
+        col.classList.remove("tf-drop-active");
+        if (!draggedCard) return;
+
+        var taskId = draggedCard.dataset.taskId;
+        var expectedStatus = draggedCard.dataset.currentStatus;
+        var targetStatus = col.dataset.status;
+        if (expectedStatus === targetStatus) return;
+
+        fetch("/tasks/" + taskId + "/move", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-CSRFToken": csrfToken
+          },
+          body: JSON.stringify({
+            board_status: targetStatus,
+            expected_status: expectedStatus
+          })
+        })
+        .then(function (res) {
+          return res.json().then(function (data) {
+            return { status: res.status, data: data };
+          });
+        })
+        .then(function (result) {
+          if (result.data && result.data.ok) {
+            window.location.reload();
+          } else {
+            if (feedback) {
+              feedback.textContent = (result.data && result.data.error) || "Move blocked by workflow rule.";
+              feedback.style.color = "var(--status-urgent)";
+            }
+            if (result.status === 409) {
+              setTimeout(function () { window.location.reload(); }, 900);
+            }
+          }
+        })
+        .catch(function () {
+          window.location.reload();
+        });
+      });
+    });
+  })();
+</script>
+{% endblock %}

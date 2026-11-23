@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}Team &amp; Governance — {{ brand_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tf-gov-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .tf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .tf-table th,
+  .tf-table td {
+    text-align: left;
+    padding: 0.6rem 0.65rem;
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle;
+  }
+  .tf-table th {
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .tf-mini-input,
+  .tf-mini-select {
+    padding: 0.42rem 0.6rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-size: 0.83rem;
+  }
+</style>
+{% endblock %}
+
+{% block page_header %}
+<div style="display: flex; align-items: center; gap: 0.65rem;">
+  <h1 style="margin: 0; font-size: 1.05rem; font-weight: 600;">Team Roster, Lead Handover &amp; Audit Log</h1>
+  <span class="tf-pill">Super Admin</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="tf-gov-grid">
+  <!-- Emergency Project Lead Handover -->
+  <div class="tf-card">
+    <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">Emergency Project Lead Handover</h2>
+    <p style="margin: 0 0 1rem; font-size: 0.8rem; color: var(--text-secondary);">
+      Reassign project ownership immediately if a lead is unavailable or transitioning off a project.
+    </p>
+
+    {% if projects %}
+      <form method="POST" action="{{ url_for('admin.handover_lead') }}" style="display: flex; flex-direction: column; gap: 0.65rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+        <div>
+          <label style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem;">Target Project</label>
+          <select name="project_id" class="tf-mini-select" style="width: 100%;" required>
+            {% for proj in projects %}
+              <option value="{{ proj.id }}">{{ proj.title }} (Current Lead: {{ proj.lead.full_name }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem;">New Project Lead</label>
+          <select name="new_lead_id" class="tf-mini-select" style="width: 100%;" required>
+            {% for m in members if m.is_active and m.role in ('super_admin', 'project_lead') %}
+              <option value="{{ m.id }}">{{ m.full_name }} ({{ m.role.replace('_', ' ').title() }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem;">Mandatory Audit Reason</label>
+          <input type="text" name="reason" class="tf-mini-input" style="width: 100%;" placeholder="e.g., Lead on medical leave; handing over sprint." required />
+        </div>
+
+        <button type="submit" class="tf-btn tf-btn-primary" style="justify-content: center;">
+          Transfer Project Ownership
+        </button>
+      </form>
+    {% else %}
+      <p style="margin: 0; font-size: 0.84rem; color: var(--text-secondary);">No projects exist in this workspace yet.</p>
+    {% endif %}
+  </div>
+
+  <!-- Team Roster & Soft Removal -->
+  <div class="tf-card" style="overflow-x: auto;">
+    <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">Workspace Members</h2>
+    <p style="margin: 0 0 0.85rem; font-size: 0.8rem; color: var(--text-secondary);">
+      Soft-removing a member revokes access immediately while preserving historical points and audit logs.
+    </p>
+
+    <table class="tf-table">
+      <thead>
+        <tr>
+          <th>Member</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in members %}
+          <tr>
+            <td>
+              <div style="font-weight: 500;">{{ m.full_name }}</div>
+              <div style="font-size: 0.76rem; color: var(--text-secondary);">{{ m.email }}</div>
+            </td>
+            <td>
+              {% if m.is_active and m.id != current_user.id %}
+                <form method="POST" action="{{ url_for('admin.change_role', user_id=m.id) }}" style="display: flex; gap: 0.3rem;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <select name="role" class="tf-mini-select">
+                    <option value="member" {% if m.role == 'member' %}selected{% endif %}>Member</option>
+                    <option value="project_lead" {% if m.role == 'project_lead' %}selected{% endif %}>Project Lead</option>
+                    <option value="super_admin" {% if m.role == 'super_admin' %}selected{% endif %}>Super Admin</option>
+                  </select>
+                  <button type="submit" class="tf-btn" style="padding: 0.3rem 0.55rem; font-size: 0.76rem;">Set</button>
+                </form>
+              {% else %}
+                <span style="text-transform: capitalize;">{{ m.role.replace('_', ' ') }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if m.is_active %}
+                <span class="tf-pill tf-pill-done">Active</span>
+              {% else %}
+                <span class="tf-pill tf-pill-urgent">Deactivated</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if m.is_active and m.id != current_user.id %}
+                <form method="POST" action="{{ url_for('admin.deactivate_member', user_id=m.id) }}" style="display: flex; gap: 0.3rem;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <input type="text" name="reason" class="tf-mini-input" style="width: 130px;" placeholder="Removal reason..." required />
+                  <button type="submit" class="tf-btn" style="padding: 0.3rem 0.55rem; font-size: 0.76rem;">Deactivate</button>
+                </form>
+              {% else %}
+                <span style="font-size: 0.76rem; color: var(--text-secondary);">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Immutable Workspace Audit Log -->
+<div class="tf-card" style="overflow-x: auto;">
+  <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.85rem;">
+    <div>
+      <h2 style="margin: 0; font-size: 0.98rem; font-weight: 600;">Immutable Governance &amp; Audit Trail</h2>
+      <p style="margin: 0.2rem 0 0; font-size: 0.8rem; color: var(--text-secondary);">
+        Tracks lead handovers, deadline extensions, settings changes, and member lifecycle events.
+      </p>
+    </div>
+
+    <form method="GET" action="{{ url_for('admin.governance') }}" style="display: flex; gap: 0.45rem;">
+      <select name="action" class="tf-mini-select">
+        <option value="">All Actions</option>
+        {% for act in ['lead_transferred', 'deadline_extended', 'user_deactivated', 'role_changed', 'settings_updated', 'project_created', 'invite_generated', 'invite_revoked'] %}
+          <option value="{{ act }}" {% if action_filter == act %}selected{% endif %}>{{ act.replace('_', ' ').title() }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="tf-btn">Filter</button>
+    </form>
+  </div>
+
+  <table class="tf-table">
+    <thead>
+      <tr>
+        <th>Timestamp (UTC)</th>
+        <th>Action</th>
+        <th>Actor</th>
+        <th>Reason &amp; Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+        <tr>
+          <td style="white-space: nowrap; color: var(--text-secondary); font-size: 0.78rem;">
+            {{ log.created_at.strftime('%Y-%m-%d %H:%M') }}
+          </td>
+          <td>
+            <span class="tf-pill" style="text-transform: capitalize;">{{ log.action.replace('_', ' ') }}</span>
+          </td>
+          <td>{{ log.actor.full_name if log.actor else 'System' }}</td>
+          <td>
+            <div>{{ log.reason or '—' }}</div>
+            {% if log.diff_payload %}
+              <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">
+                <code>{{ log.diff_payload }}</code>
+              </div>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="4" style="color: var(--text-secondary);">No audit entries match the selected filter.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

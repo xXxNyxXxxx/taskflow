@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}Workspace Settings — {{ brand_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tf-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .tf-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-bottom: 0.85rem;
+  }
+  .tf-label {
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .tf-hint {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+  }
+  .tf-input,
+  .tf-select {
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-size: 0.88rem;
+  }
+  .tf-row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  .tf-check-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.86rem;
+    margin-bottom: 0.65rem;
+    cursor: pointer;
+  }
+</style>
+{% endblock %}
+
+{% block sidebar_nav %}
+<span style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.5rem; text-transform: uppercase; letter-spacing: 0.04em;">
+  Workspace
+</span>
+<a href="{{ url_for('auth.dashboard') }}" class="tf-btn" style="border: none; background: transparent;">Overview</a>
+{% if current_user.is_super_admin %}
+  <a href="{{ url_for('admin.settings') }}" class="tf-btn" style="background-color: var(--accent-primary-tint); border-color: transparent;">
+    Workspace Settings
+  </a>
+{% endif %}
+{% endblock %}
+
+{% block page_header %}
+<div style="display: flex; align-items: center; gap: 0.65rem;">
+  <h1 style="margin: 0; font-size: 1.05rem; font-weight: 600;">Workspace Settings & White-Label Branding</h1>
+  <span class="tf-pill">Super Admin</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<form method="POST" enctype="multipart/form-data" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="tf-settings-grid">
+    <!-- Card 1: White-Label Branding (ADHD/OCD Safe) -->
+    <div class="tf-card">
+      <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">White-Label Branding</h2>
+      <p class="tf-hint" style="margin: 0 0 1rem;">Customize workspace identity while preserving low-arousal contrast standards.</p>
+
+      <div class="tf-field">
+        <label class="tf-label" for="{{ form.brand_name.id }}">{{ form.brand_name.label.text }}</label>
+        {{ form.brand_name(class="tf-input", placeholder="Leave blank to use organization name") }}
+      </div>
+
+      <div class="tf-field">
+        <label class="tf-label" for="{{ form.logo_file.id }}">{{ form.logo_file.label.text }}</label>
+        {{ form.logo_file(class="tf-input") }}
+        <span class="tf-hint">Magic-byte verified raster upload (SVG blocked for security).</span>
+      </div>
+
+      {% if brand_logo_url %}
+        <label class="tf-check-row">
+          {{ form.remove_logo() }}
+          <span>{{ form.remove_logo.label.text }}</span>
+        </label>
+      {% endif %}
+
+      <div class="tf-field">
+        <label class="tf-label" for="{{ form.theme_preset.id }}">{{ form.theme_preset.label.text }}</label>
+        {{ form.theme_preset(class="tf-select") }}
+      </div>
+
+      <div class="tf-field">
+        <label class="tf-label" for="{{ form.custom_accent_hex.id }}">{{ form.custom_accent_hex.label.text }}</label>
+        <div style="display: flex; gap: 0.5rem;">
+          {{ form.custom_accent_hex(class="tf-input", id="tf-accent-hex", placeholder="#5B7C8D") }}
+          <button type="button" class="tf-btn" onclick="document.getElementById('tf-accent-hex').value=''">Reset</button>
+        </div>
+        <span class="tf-hint">Neon saturations (&gt;65%) are automatically rejected to prevent visual overload.</span>
+      </div>
+    </div>
+
+    <!-- Card 2: Workflow & Governance Rules -->
+    <div class="tf-card">
+      <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">Workflow & Governance</h2>
+      <p class="tf-hint" style="margin: 0 0 1rem;">Tailor task handshakes, SLAs, and client sharing to your team's cadence.</p>
+
+      <div class="tf-field">
+        <label class="tf-label" for="{{ form.acceptance_mode.id }}">{{ form.acceptance_mode.label.text }}</label>
+        {{ form.acceptance_mode(class="tf-select") }}
+      </div>
+
+      <div class="tf-row-2">
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.pending_sla_hours.id }}">{{ form.pending_sla_hours.label.text }}</label>
+          {{ form.pending_sla_hours(class="tf-input", type="number") }}
+        </div>
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.invite_expiry_hours.id }}">{{ form.invite_expiry_hours.label.text }}</label>
+          {{ form.invite_expiry_hours(class="tf-input", type="number") }}
+        </div>
+      </div>
+
+      <div class="tf-field">
+        <label class="tf-label" for="{{ form.daily_digest_mode.id }}">{{ form.daily_digest_mode.label.text }}</label>
+        {{ form.daily_digest_mode(class="tf-select") }}
+      </div>
+
+      <label class="tf-check-row">
+        {{ form.require_review_gate() }}
+        <span>{{ form.require_review_gate.label.text }}</span>
+      </label>
+
+      <label class="tf-check-row">
+        {{ form.allow_client_share_links() }}
+        <span>{{ form.allow_client_share_links.label.text }}</span>
+      </label>
+    </div>
+
+    <!-- Card 3: Kanban Column Labels -->
+    <div class="tf-card">
+      <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">Kanban Column Labels</h2>
+      <p class="tf-hint" style="margin: 0 0 1rem;">Rename board columns without altering underlying reporting states.</p>
+
+      <div class="tf-row-2">
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.col_todo.id }}">{{ form.col_todo.label.text }}</label>
+          {{ form.col_todo(class="tf-input") }}
+        </div>
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.col_in_progress.id }}">{{ form.col_in_progress.label.text }}</label>
+          {{ form.col_in_progress(class="tf-input") }}
+        </div>
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.col_review.id }}">{{ form.col_review.label.text }}</label>
+          {{ form.col_review(class="tf-input") }}
+        </div>
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.col_done.id }}">{{ form.col_done.label.text }}</label>
+          {{ form.col_done(class="tf-input") }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 4: Recognition & Performance Tiers -->
+    <div class="tf-card">
+      <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">Recognition & Performance Tiers</h2>
+      <p class="tf-hint" style="margin: 0 0 1rem;">Toggle gamification and adjust priority weights or bonus rules.</p>
+
+      <label class="tf-check-row">
+        {{ form.recognition_enabled() }}
+        <span>{{ form.recognition_enabled.label.text }}</span>
+      </label>
+
+      <div class="tf-field">
+        <label class="tf-label" for="{{ form.tier_reset_cadence.id }}">{{ form.tier_reset_cadence.label.text }}</label>
+        {{ form.tier_reset_cadence(class="tf-select") }}
+      </div>
+
+      <div class="tf-row-2">
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.on_time_bonus_pct.id }}">{{ form.on_time_bonus_pct.label.text }}</label>
+          {{ form.on_time_bonus_pct(class="tf-input", type="number") }}
+        </div>
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.internal_ext_penalty_pct.id }}">{{ form.internal_ext_penalty_pct.label.text }}</label>
+          {{ form.internal_ext_penalty_pct(class="tf-input", type="number") }}
+        </div>
+      </div>
+
+      <div class="tf-row-2">
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.weight_low.id }}">Low / Medium Pts</label>
+          <div style="display: flex; gap: 0.4rem;">
+            {{ form.weight_low(class="tf-input", type="number") }}
+            {{ form.weight_medium(class="tf-input", type="number") }}
+          </div>
+        </div>
+        <div class="tf-field">
+          <label class="tf-label" for="{{ form.weight_high.id }}">High / Critical Pts</label>
+          <div style="display: flex; gap: 0.4rem;">
+            {{ form.weight_high(class="tf-input", type="number") }}
+            {{ form.weight_critical(class="tf-input", type="number") }}
+          </div>
+        </div>
+      </div>
+
+      <div class="tf-field">
+        <label class="tf-label">Tier Thresholds (Emerald / Indigo / Gold)</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem;">
+          {{ form.tier_emerald(class="tf-input", type="number") }}
+          {{ form.tier_indigo(class="tf-input", type="number") }}
+          {{ form.tier_gold(class="tf-input", type="number") }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-bottom: 2rem;">
+    <button type="submit" class="tf-btn tf-btn-primary" style="padding: 0.6rem 1.25rem;">
+      Save All Workspace Settings
+    </button>
+  </div>
+</form>
+
+<!-- Team Invite Code Generator -->
+<div class="tf-card">
+  <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">Workspace Invite Codes</h2>
+  <p class="tf-hint" style="margin: 0 0 1rem;">Generate role-bound invite codes for team members or project leads.</p>
+
+  <form method="POST" action="{{ url_for('admin.create_invite') }}" style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; margin-bottom: 1.25rem;">
+    {{ invite_form.hidden_tag() }}
+    <div>
+      <label class="tf-label" for="{{ invite_form.assigned_role.id }}">Role</label>
+      {{ invite_form.assigned_role(class="tf-select") }}
+    </div>
+    <div>
+      <label class="tf-label" for="{{ invite_form.max_uses.id }}">Max Uses</label>
+      {{ invite_form.max_uses(class="tf-input", type="number", style="width: 110px;") }}
+    </div>
+    <button type="submit" class="tf-btn tf-btn-primary">Generate Code</button>
+  </form>
+
+  {% if active_invites %}
+    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+      {% for inv in active_invites %}
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0.85rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+          <div style="font-size: 0.85rem;">
+            <strong style="text-transform: capitalize;">{{ inv.assigned_role.replace('_', ' ') }}</strong>
+            <span style="color: var(--text-secondary);">
+              — Used {{ inv.use_count }}/{{ inv.max_uses }} · Expires {{ inv.expires_at.strftime('%Y-%m-%d %H:%M UTC') }}
+            </span>
+          </div>
+          <form method="POST" action="{{ url_for('admin.revoke_invite', invite_id=inv.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <button type="submit" class="tf-btn" style="font-size: 0.78rem;">Revoke</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="tf-hint" style="margin: 0;">No active invite codes.</p>
+  {% endif %}
+</div>
+{% endblock %}

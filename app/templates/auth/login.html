@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Sign In {{ brand_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tf-auth-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 1.75rem;
+  }
+  .tf-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+  }
+  .tf-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .tf-input {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-size: 0.92rem;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .tf-input:focus {
+    border-color: var(--accent-primary);
+  }
+  .tf-error-text {
+    font-size: 0.8rem;
+    color: var(--status-urgent);
+  }
+</style>
+{% endblock %}
+
+{% block auth_content %}
+<div class="tf-card tf-auth-card">
+  <div style="display: flex; align-items: center; gap: 0.65rem; margin-bottom: 1.25rem;">
+    {% if brand_logo_url %}
+      <img src="{{ brand_logo_url }}" alt="{{ brand_name }} logo" class="tf-brand-logo" />
+    {% else %}
+      <span class="tf-brand-monogram" aria-hidden="true">{{ brand_name[:1]|upper }}</span>
+    {% endif %}
+    <div>
+      <h1 style="margin: 0; font-size: 1.15rem; font-weight: 600;">{{ brand_name }}</h1>
+      <p style="margin: 0; font-size: 0.82rem; color: var(--text-secondary);">Sign in to your workspace</p>
+    </div>
+  </div>
+
+  <form method="POST" novalidate>
+    {{ form.hidden_tag() }}
+
+    <div class="tf-field">
+      <label class="tf-label" for="{{ form.email.id }}">{{ form.email.label.text }}</label>
+      {{ form.email(class="tf-input", placeholder="you@company.com", autocomplete="email") }}
+      {% for err in form.email.errors %}
+        <span class="tf-error-text">{{ err }}</span>
+      {% endfor %}
+    </div>
+
+    <div class="tf-field">
+      <label class="tf-label" for="{{ form.password.id }}">{{ form.password.label.text }}</label>
+      {{ form.password(class="tf-input", placeholder="••••••••", autocomplete="current-password") }}
+      {% for err in form.password.errors %}
+        <span class="tf-error-text">{{ err }}</span>
+      {% endfor %}
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+      <label style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.84rem; color: var(--text-secondary); cursor: pointer;">
+        {{ form.remember_me() }}
+        <span>{{ form.remember_me.label.text }}</span>
+      </label>
+    </div>
+
+    <button type="submit" class="tf-btn tf-btn-primary" style="width: 100%; justify-content: center; padding: 0.6rem;">
+      Sign In
+    </button>
+  </form>
+
+  <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 0.84rem; color: var(--text-secondary);">
+    {% if app_mode == "private" %}
+      Have a team invite code?
+      <a href="{{ url_for('auth.signup') }}" style="color: var(--accent-primary); font-weight: 500; text-decoration: none;">Join Workspace</a>
+    {% else %}
+      New to {{ brand_name }}?
+      <a href="{{ url_for('auth.signup') }}" style="color: var(--accent-primary); font-weight: 500; text-decoration: none;">Create or Join Workspace</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

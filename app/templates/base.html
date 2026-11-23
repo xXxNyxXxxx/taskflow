@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="{{ csrf_token() }}" />
+  <title>{% block title %}{{ brand_name }}{% endblock %}</title>
+
+  {# Synchronous Zero-Flash Theme Script: executes before CSS paints #}
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("taskflow-theme");
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var theme = (saved === "light" || saved === "dark") ? saved : (prefersDark ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}" />
+
+  {# Tenant White-Label Accent Override (Validated 6-digit hex from context processor) #}
+  <style>
+    :root,
+    [data-theme="light"] {
+      --accent-primary: {{ brand_light_accent }};
+    }
+    [data-theme="dark"] {
+      --accent-primary: {{ brand_dark_accent }};
+    }
+  </style>
+
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  {% if current_user.is_authenticated %}
+  <div class="tf-shell">
+    <aside class="tf-sidebar" aria-label="Workspace navigation">
+      <a href="{{ url_for('auth.dashboard') }}" class="tf-brand">
+        {% if brand_logo_url %}
+          <img src="{{ brand_logo_url }}" alt="{{ brand_name }} logo" class="tf-brand-logo" />
+        {% else %}
+          <span class="tf-brand-monogram" aria-hidden="true">{{ brand_name[:1]|upper }}</span>
+        {% endif %}
+        <span>{{ brand_name }}</span>
+      </a>
+
+      <nav style="display: flex; flex-direction: column; gap: 0.35rem; flex: 1;">
+        {% block sidebar_nav %}
+        <span style="font-size: 0.75rem; color: var(--text-secondary); padding: 0.25rem 0.5rem; text-transform: uppercase; letter-spacing: 0.04em;">
+          Workspace
+        </span>
+        <a href="{{ url_for('auth.dashboard') }}" class="tf-btn" style="border: none; background: transparent;">Overview</a>
+        <a href="{{ url_for('projects.index') }}" class="tf-btn" style="border: none; background: transparent;">Projects</a>
+        {% if current_user.is_super_admin %}
+          <a href="{{ url_for('admin.governance') }}" class="tf-btn" style="border: none; background: transparent;">
+            Team &amp; Governance
+          </a>
+          <a href="{{ url_for('admin.settings') }}" class="tf-btn" style="border: none; background: transparent;">
+            Workspace Settings
+          </a>
+        {% endif %}
+        {% endblock %}
+      </nav>
+
+      <div style="border-top: 1px solid var(--border-subtle); padding-top: 0.85rem; font-size: 0.85rem; color: var(--text-secondary);">
+        <div style="color: var(--text-primary); font-weight: 500;">{{ current_user.full_name }}</div>
+        <div style="font-size: 0.78rem; text-transform: capitalize;">{{ current_user.role.replace('_', ' ') }}</div>
+    
+      <form method="POST" action="{{ url_for('auth.logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="tf-btn" style="width: 100%; justify-content: center; font-size: 0.8rem;">
+            Sign Out
+          </button>
+        </form>
+
+      </div>
+    </aside>
+
+    <div class="tf-main-wrapper">
+      <header class="tf-topbar">
+        <div>
+          {% block page_header %}{% endblock %}
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          {% block topbar_actions %}{% endblock %}
+
+          <button type="button" id="tf-theme-toggle" class="tf-btn" aria-label="Toggle light or dark theme">
+            <span id="tf-theme-label">Theme</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="tf-content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="tf-flash tf-flash-{{ category }}" role="alert">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+  {% else %}
+  <main style="min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 1.5rem;">
+    <div style="position: fixed; top: 1rem; right: 1.25rem;">
+      <button type="button" id="tf-theme-toggle" class="tf-btn" aria-label="Toggle light or dark theme">
+        <span id="tf-theme-label">Theme</span>
+      </button>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div style="width: 100%; max-width: 420px;">
+          {% for category, message in messages %}
+            <div class="tf-flash tf-flash-{{ category }}" role="alert">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block auth_content %}{% endblock %}
+  </main>
+  {% endif %}
+
+  <script>
+    (function () {
+      var btn = document.getElementById("tf-theme-toggle");
+      var label = document.getElementById("tf-theme-label");
+
+      function syncLabel(theme) {
+        if (label) {
+          label.textContent = theme === "dark" ? "Calm Alabaster (Light)" : "Warm Charcoal (Dark)";
+        }
+      }
+
+      var current = document.documentElement.getAttribute("data-theme") || "light";
+      syncLabel(current);
+
+      if (btn) {
+        btn.addEventListener("click", function () {
+          var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", next);
+          try {
+            localStorage.setItem("taskflow-theme", next);
+          } catch (e) {}
+          syncLabel(next);
+        });
+      }
+    })();
+  </script>
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>
