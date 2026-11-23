@@ -54,6 +54,9 @@ def get_tenant_task(task_id: int, organization_id: int) -> Task:
         raise TaskServiceError("Task not found in your workspace.")
     return task
 
+def _assert_project_mutable(project: Project) -> None:
+    if project.status == "archived":
+        raise TaskServiceError("This project is archived and read-only.")
 
 def _resolve_initial_assignment(
     *,

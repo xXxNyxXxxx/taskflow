@@ -86,17 +86,17 @@ def register_cli_commands(app: Flask) -> None:
         )
         member_a1 = User(
             organization_id=org_a.id,
-            email="maya@aurelia.dev",
+            email="joey@aurelia.dev",
             password_hash=default_pw,
-            full_name="Maya Designer",
+            full_name="Joey Designer",
             role="member",
             current_tier="emerald",
         )
         member_a2 = User(
             organization_id=org_a.id,
-            email="leo@aurelia.dev",
+            email="iris@aurelia.dev",
             password_hash=default_pw,
-            full_name="Leo Developer",
+            full_name="Iris Developer",
             role="member",
             current_tier="slate",
         )
@@ -307,7 +307,7 @@ def register_cli_commands(app: Flask) -> None:
         db.session.commit()
 
         click.echo("Seeded TaskFlow v2.2 development fixtures successfully:")
-        click.echo("  Tenant A (Aurelia Studio): admin@aurelia.dev | lead@aurelia.dev | maya@aurelia.dev | leo@aurelia.dev")
+        click.echo("  Tenant A (Aurelia Studio): admin@aurelia.dev | lead@aurelia.dev | joey@aurelia.dev | iris@aurelia.dev")
         click.echo("  Tenant B (Northstar):      admin@northstar.dev")
         click.echo("  Password for all users:    TaskFlowDev123!")
         click.echo(f"  Tenant A Invite Code:      {raw_invite_a}")

@@ -99,14 +99,19 @@
   <span class="tf-pill">Lead: {{ project.lead.full_name }}</span>
 </div>
 {% endblock %}
-
 {% block content %}
 {% set is_lead_or_admin = current_user.is_super_admin or project.lead_id == current_user.id %}
 
-<!-- Collapsible Project Controls (Create Task & Templates) -->
+{% if project.status == 'archived' %}
+  <div class="tf-card" style="margin-bottom: 1rem; border-left: 3px solid var(--text-secondary); background-color: var(--bg-sidebar);">
+    <strong>Archived Project (Read-Only):</strong> Task creation, card movement, and deadline changes are locked while historical audit trails remain intact.
+  </div>
+{% endif %}
+
+<!-- Collapsible Project Controls (Create Task, Templates & Lifecycle) -->
 <div class="tf-board-toolbar">
   <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-    {% if is_lead_or_admin %}
+    {% if is_lead_or_admin and project.status != 'archived' %}
       <details class="tf-card" style="padding: 0.55rem 0.85rem;">
         <summary style="margin: 0; font-weight: 600; font-size: 0.84rem;">+ New Top-Level Task</summary>
         <form method="POST" action="{{ url_for('board.create', project_id=project.id) }}" style="margin-top: 0.75rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; min-width: 320px;">
@@ -148,6 +153,47 @@
           <form method="POST" action="{{ url_for('projects.save_template', project_id=project.id) }}" style="display: flex; gap: 0.45rem;">
             {{ template_form.hidden_tag() }}
             {{ template_form.name(class="tf-mini-input", placeholder="Save board as template...") }}
+            <button type="submit" class="tf-btn tf-btn-primary">Save</button>
+          </form>
+        </div>
+      </details>
+
+      <details class="tf-card" style="padding: 0.55rem 0.85rem;">
+        <summary style="margin: 0; font-weight: 600; font-size: 0.84rem;">Archive / Delete</summary>
+        <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 280px;">
+          <!-- Archive (Recommended for any project with work) -->
+          <form method="POST" action="{{ url_for('projects.archive', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <span style="font-size: 0.76rem; color: var(--text-secondary);">Archive Project (preserves all history &amp; points)</span>
+            <input type="text" name="reason" class="tf-mini-input" placeholder="Archive reason..." required />
+            <button type="submit" class="tf-btn" style="justify-content: center;">Archive Project</button>
+          </form>
+
+          <!-- Request Deletion (Lead) or Immediate Purge if Empty (Super Admin) -->
+          {% if current_user.is_super_admin %}
+            <form method="POST" action="{{ url_for('admin.purge_project', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <span style="font-size: 0.76rem; color: var(--status-urgent);">Permanent Purge (only if empty &amp; unused)</span>
+              <input type="text" name="reason" class="tf-mini-input" placeholder="Deletion reason..." required />
+              <button type="submit" class="tf-btn" style="justify-content: center;">Delete Empty Project</button>
+            </form>
+          {% else %}
+            <form method="POST" action="{{ url_for('projects.request_delete', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <span style="font-size: 0.76rem; color: var(--text-secondary);">Created in error? Request Super Admin deletion</span>
+              <input type="text" name="reason" class="tf-mini-input" placeholder="Why should this be deleted?" required />
+              <button type="submit" class="tf-btn" style="justify-content: center;">Request Deletion</button>
+            </form>
+          {% endif %}
+        </div>
+      </details>
+    {% elif is_lead_or_admin and project.status == 'archived' %}
+      <details class="tf-card" style="padding: 0.55rem 0.85rem;">
+        <summary style="margin: 0; font-weight: 600; font-size: 0.84rem;">Templates</summary>
+        <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 280px;">
+          <form method="POST" action="{{ url_for('projects.save_template', project_id=project.id) }}" style="display: flex; gap: 0.45rem;">
+            {{ template_form.hidden_tag() }}
+            {{ template_form.name(class="tf-mini-input", placeholder="Save archived board as template...") }}
             <button type="submit" class="tf-btn tf-btn-primary">Save</button>
           </form>
         </div>

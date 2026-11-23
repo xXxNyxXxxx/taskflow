@@ -173,3 +173,4 @@ class TaskComment(db.Model):
     )
 
     task: Mapped["Task"] = relationship(back_populates="comments")
+    author: Mapped["User"] = relationship()

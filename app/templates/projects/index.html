@@ -45,9 +45,16 @@
 {% endblock %}
 
 {% block page_header %}
-<div style="display: flex; align-items: center; gap: 0.65rem;">
-  <h1 style="margin: 0; font-size: 1.05rem; font-weight: 600;">Workspace Projects</h1>
-  <span class="tf-pill">{{ projects|length }} Total</span>
+<div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 0.65rem;">
+  <div style="display: flex; align-items: center; gap: 0.65rem;">
+    <h1 style="margin: 0; font-size: 1.05rem; font-weight: 600;">Workspace Projects</h1>
+    <span class="tf-pill">{{ projects|length }} Shown</span>
+  </div>
+  {% if show_archived %}
+    <a href="{{ url_for('projects.index') }}" class="tf-btn" style="font-size: 0.8rem;">Hide Archived</a>
+  {% else %}
+    <a href="{{ url_for('projects.index', show_archived=1) }}" class="tf-btn" style="font-size: 0.8rem;">Show Archived</a>
+  {% endif %}
 </div>
 {% endblock %}
 

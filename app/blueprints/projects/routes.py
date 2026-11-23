@@ -61,11 +61,12 @@ def index():
         except TaskServiceError as exc:
             flash(str(exc), "danger")
 
-    projects = (
-        Project.query.filter_by(organization_id=org.id)
-        .order_by(Project.created_at.desc())
-        .all()
-    )
+    show_archived = request.args.get("show_archived") == "1"
+    proj_query = Project.query.filter_by(organization_id=org.id)
+    if not show_archived:
+        proj_query = proj_query.filter(Project.status != "archived")
+
+    projects = proj_query.order_by(Project.created_at.desc()).all()
     templates = (
         ProjectTemplate.query.filter_by(organization_id=org.id)
         .order_by(ProjectTemplate.name.asc())
@@ -76,6 +77,7 @@ def index():
         projects=projects,
         templates=templates,
         form=form,
+        show_archived=show_archived,
     )
 
 
@@ -163,4 +165,36 @@ def apply_template(project_id: int):
     except TaskServiceError as exc:
         flash(str(exc), "danger")
 
+    return redirect(url_for("projects.board", project_id=project_id))
+
+
+from app.services.governance_service import (
+    GovernanceServiceError,
+    archive_project,
+    request_project_deletion,
+)
+
+
+@projects_bp.post("/<int:project_id>/archive")
+@role_required("super_admin", "project_lead")
+def archive(project_id: int):
+    reason = request.form.get("reason", "")
+    try:
+        proj = archive_project(project_id=project_id, actor=current_user, reason=reason)
+        flash(f"Project '{proj.title}' has been archived (read-only).", "info")
+        return redirect(url_for("projects.index"))
+    except GovernanceServiceError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("projects.board", project_id=project_id))
+
+
+@projects_bp.post("/<int:project_id>/request-delete")
+@role_required("super_admin", "project_lead")
+def request_delete(project_id: int):
+    reason = request.form.get("reason", "")
+    try:
+        request_project_deletion(project_id=project_id, actor=current_user, reason=reason)
+        flash("Deletion request submitted to your workspace Super Admin.", "info")
+    except GovernanceServiceError as exc:
+        flash(str(exc), "danger")
     return redirect(url_for("projects.board", project_id=project_id))

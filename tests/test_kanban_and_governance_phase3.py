@@ -331,7 +331,7 @@ def test_emergency_lead_handover_and_soft_removal_governance(db_session):
     )
     assert project.lead_id == lead2.id
 
-    # Now lead1 can be deactivated cleanly, and member soft-removal unassigns open task
+    #lead1 can be deactivated cleanly, and member soft-removal unassigns open task
     soft_remove_member(target_user_id=lead1.id, actor=admin, reason="Offboarding completed")
     assert lead1.is_active is False
 
@@ -346,3 +346,38 @@ def test_emergency_lead_handover_and_soft_removal_governance(db_session):
     ).first()
     assert handover_audit is not None
     assert handover_audit.diff_payload["after"]["lead_id"] == lead2.id
+
+
+def test_board_html_renders_comments_and_subtasks_cleanly(client, db_session):
+    from app.services.task_service import add_task_comment
+
+    _, _, lead, _, member = seed_workspace(db_session, slug="render-org")
+    project = create_project(
+        actor=lead,
+        title="Render Check Project",
+        description="Ensures Jinja relationships render cleanly",
+        est_completion_date=date.today() + timedelta(days=10),
+    )
+    parent = create_task(
+        project_id=project.id,
+        actor=lead,
+        title="Parent Card",
+        due_date=date.today() + timedelta(days=6),
+        assignee_id=member.id,
+    )
+    create_task(
+        project_id=project.id,
+        actor=member,
+        title="Child Subtask",
+        due_date=date.today() + timedelta(days=4),
+        parent_task_id=parent.id,
+    )
+    add_task_comment(task_id=parent.id, actor=lead, body="Checking comment author rendering.")
+
+    login_as(client, lead.email)
+    res = client.get(f"/projects/{project.id}/board")
+    assert res.status_code == 200
+    assert b"Render Check Project" in res.data
+    assert b"Parent Card" in res.data
+    assert b"Child Subtask" in res.data
+    assert b"Checking comment author rendering." in res.data

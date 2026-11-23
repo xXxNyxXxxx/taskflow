@@ -170,6 +170,17 @@ def governance():
     action_filter = request.args.get("action", "").strip() or None
     logs = query_audit_logs(organization_id=org.id, action=action_filter, limit=100)
 
+
+    pending_deletions = (
+    AuditLog.query.filter(
+        AuditLog.organization_id == org.id,
+        AuditLog.action == "project_delete_requested",
+        AuditLog.project_id.isnot(None),
+    )
+    .order_by(AuditLog.created_at.desc())
+    .all()
+    )
+
     return render_template(
         "admin/governance.html",
         members=members,
@@ -231,4 +242,31 @@ def deactivate_member(user_id: int):
     except GovernanceServiceError as exc:
         flash(str(exc), "danger")
 
+    return redirect(url_for("admin.governance"))
+
+
+from app.services.governance_service import (
+    GovernanceServiceError,
+    archive_project,
+    delete_empty_project,
+    query_audit_logs,
+    soft_remove_member,
+    transfer_project_lead,
+    update_member_role,
+)
+
+
+@admin_bp.post("/governance/projects/<int:project_id>/delete")
+@role_required("super_admin")
+def purge_project(project_id: int):
+    reason = request.form.get("reason", "")
+    try:
+        title = delete_empty_project(
+            project_id=project_id,
+            actor=current_user,
+            reason=reason,
+        )
+        flash(f"Permanently deleted unused project '{title}'.", "info")
+    except GovernanceServiceError as exc:
+        flash(str(exc), "danger")
     return redirect(url_for("admin.governance"))

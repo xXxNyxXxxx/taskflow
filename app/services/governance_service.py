@@ -1,6 +1,15 @@
 from datetime import datetime, timezone
 from app.extensions import db
-from app.models import AuditLog, Project, Task, User
+from app.models import (
+    AuditLog,
+    DeadlineExtension,
+    PointLedger,
+    Project,
+    ProjectShareLink,
+    Task,
+    TaskComment,
+    User,
+)
 
 
 class GovernanceServiceError(Exception):
@@ -199,3 +208,184 @@ def query_audit_logs(
     if project_id:
         q = q.filter_by(project_id=project_id)
     return q.order_by(AuditLog.created_at.desc()).limit(min(limit, 500)).all()
+
+def _check_project_deletable(project: Project, actor: User) -> tuple[bool, str | None]:
+    """Evaluates whether a project has zero external work/history and qualifies for hard-deletion."""
+    if project.tasks:
+        task_ids = [t.id for t in project.tasks]
+
+        # 1. Any task assigned to someone other than the creator/actor?
+        if any(t.assignee_id is not None and t.assignee_id != actor.id for t in project.tasks):
+            return False, "Project has tasks assigned to team members. Archive it instead."
+
+        # 2. Any task moved past 'todo' or marked blocked?
+        if any(t.board_status != "todo" or t.is_blocked for t in project.tasks):
+            return False, "Project has in-progress, blocked, or completed tasks. Archive it instead."
+
+        # 3. Any comments, deadline extensions, or recognition points recorded?
+        if TaskComment.query.filter(TaskComment.task_id.in_(task_ids)).count() > 0:
+            return False, "Project contains task discussion history. Archive it instead."
+
+        if DeadlineExtension.query.filter(DeadlineExtension.task_id.in_(task_ids)).count() > 0:
+            return False, "Project contains deadline extension audit records. Archive it instead."
+
+        if PointLedger.query.filter(PointLedger.task_id.in_(task_ids)).count() > 0:
+            return False, "Project has awarded recognition points. Archive it instead."
+
+    return True, None
+
+
+def archive_project(
+    *,
+    project_id: int,
+    actor: User,
+    reason: str,
+) -> Project:
+    """Marks a project read-only ('archived'), revokes active client share links, and preserves all history."""
+    project = Project.query.filter_by(
+        id=project_id, organization_id=actor.organization_id
+    ).first()
+    if project is None:
+        raise GovernanceServiceError("Project not found in your workspace.")
+
+    if actor.role != "super_admin" and project.lead_id != actor.id:
+        raise GovernanceServiceError("Only the Project Lead or Super Admin can archive this project.")
+
+    if project.status == "archived":
+        raise GovernanceServiceError("Project is already archived.")
+
+    clean_reason = (reason or "").strip()
+    if len(clean_reason) < 5:
+        raise GovernanceServiceError("Please provide an audit reason (at least 5 characters) to archive this project.")
+
+    old_status = project.status
+    project.status = "archived"
+
+    # Revoke any active public client share links automatically
+    active_links = ProjectShareLink.query.filter_by(
+        project_id=project.id, is_revoked=False
+    ).all()
+    for link in active_links:
+        link.is_revoked = True
+
+    db.session.add(
+        AuditLog(
+            organization_id=actor.organization_id,
+            actor_id=actor.id,
+            project_id=project.id,
+            target_type="project",
+            target_id=project.id,
+            action="project_archived",
+            reason=clean_reason,
+            diff_payload={
+                "before": {"status": old_status},
+                "after": {"status": "archived", "revoked_share_links": len(active_links)},
+            },
+        )
+    )
+    db.session.commit()
+    return project
+
+
+def request_project_deletion(
+    *,
+    project_id: int,
+    actor: User,
+    reason: str,
+) -> AuditLog:
+    """Allows a Project Lead to request permanent deletion of an unused/accidental project from Super Admin."""
+    project = Project.query.filter_by(
+        id=project_id, organization_id=actor.organization_id
+    ).first()
+    if project is None:
+        raise GovernanceServiceError("Project not found in your workspace.")
+
+    if actor.role != "super_admin" and project.lead_id != actor.id:
+        raise GovernanceServiceError("Only the assigned Project Lead can request project deletion.")
+
+    clean_reason = (reason or "").strip()
+    if len(clean_reason) < 5:
+        raise GovernanceServiceError("Please provide a clear reason (at least 5 characters) for the Super Admin.")
+
+    is_deletable, block_reason = _check_project_deletable(project, actor)
+    if not is_deletable:
+        raise GovernanceServiceError(block_reason)
+
+    # Prevent duplicate pending requests for the same project
+    existing = AuditLog.query.filter_by(
+        organization_id=actor.organization_id,
+        project_id=project.id,
+        action="project_delete_requested",
+    ).first()
+    if existing is not None:
+        raise GovernanceServiceError("A deletion request for this project is already awaiting Super Admin review.")
+
+    log_entry = AuditLog(
+        organization_id=actor.organization_id,
+        actor_id=actor.id,
+        project_id=project.id,
+        target_type="project",
+        target_id=project.id,
+        action="project_delete_requested",
+        reason=clean_reason,
+        diff_payload={
+            "project_title": project.title,
+            "requested_by": actor.full_name,
+            "status": "pending_review",
+        },
+    )
+    db.session.add(log_entry)
+    db.session.commit()
+    return log_entry
+
+
+def delete_empty_project(
+    *,
+    project_id: int,
+    actor: User,
+    reason: str,
+) -> str:
+    """Super Admin permanent purge of an empty/unused project with full audit trail preservation."""
+    if actor.role != "super_admin":
+        raise GovernanceServiceError("Only a Super Admin can permanently delete a project.")
+
+    project = Project.query.filter_by(
+        id=project_id, organization_id=actor.organization_id
+    ).first()
+    if project is None:
+        raise GovernanceServiceError("Project not found in your workspace.")
+
+    clean_reason = (reason or "").strip()
+    if len(clean_reason) < 5:
+        raise GovernanceServiceError("A clear audit reason (at least 5 characters) is required for permanent deletion.")
+
+    is_deletable, block_reason = _check_project_deletable(project, actor)
+    if not is_deletable:
+        raise GovernanceServiceError(block_reason)
+
+    deleted_title = project.title
+    deleted_id = project.id
+
+    # Nullify project_id on existing audit logs for this project before deleting row
+    AuditLog.query.filter_by(
+        organization_id=actor.organization_id, project_id=deleted_id
+    ).update({"project_id": None})
+
+    db.session.add(
+        AuditLog(
+            organization_id=actor.organization_id,
+            actor_id=actor.id,
+            project_id=None,
+            target_type="project",
+            target_id=deleted_id,
+            action="project_deleted",
+            reason=clean_reason,
+            diff_payload={
+                "before": {"project_id": deleted_id, "title": deleted_title},
+                "after": None,
+            },
+        )
+    )
+    db.session.delete(project)
+    db.session.commit()
+    return deleted_title

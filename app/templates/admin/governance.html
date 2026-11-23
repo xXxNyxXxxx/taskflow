@@ -47,6 +47,32 @@
 </div>
 {% endblock %}
 
+{% if pending_deletions %}
+  <div class="tf-card" style="margin-bottom: 1.25rem; border-left: 3px solid var(--status-urgent);">
+    <h2 style="margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600;">Pending Project Deletion Requests</h2>
+    <p style="margin: 0 0 0.85rem; font-size: 0.8rem; color: var(--text-secondary);">
+      Project Leads requested permanent removal of these unused projects. Review and confirm below.
+    </p>
+    <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+      {% for req in pending_deletions %}
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.6rem 0.8rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+          <div style="font-size: 0.84rem;">
+            <strong>{{ req.diff_payload.get('project_title', 'Project #' ~ req.project_id) }}</strong>
+            <span style="color: var(--text-secondary);">
+              — Requested by {{ req.actor.full_name if req.actor else 'Lead' }}: "{{ req.reason }}"
+            </span>
+          </div>
+          <form method="POST" action="{{ url_for('admin.purge_project', project_id=req.project_id) }}" style="display: flex; gap: 0.4rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <input type="text" name="reason" class="tf-mini-input" value="Approved deletion request: {{ req.reason }}" required />
+            <button type="submit" class="tf-btn tf-btn-primary" style="font-size: 0.78rem;">Approve &amp; Delete</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
 {% block content %}
 <div class="tf-gov-grid">
   <!-- Emergency Project Lead Handover -->
