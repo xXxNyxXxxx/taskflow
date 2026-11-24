@@ -521,9 +521,16 @@ def move_task_status(
     is_lead_or_admin = actor.role == "super_admin" or project.lead_id == actor.id
     is_assignee = task.assignee_id == actor.id
     is_creator = task.created_by_id == actor.id
+    is_unassigned_subtask_owner = (
+        task.parent_task is not None
+        and task.assignee_id is None
+        and task.parent_task.assignee_id == actor.id
+    )
 
-    if not (is_lead_or_admin or is_assignee):
-        raise TaskServiceError("Only the task assignee, Project Lead, or Super Admin can move this card.")
+    if not (is_lead_or_admin or is_assignee or is_unassigned_subtask_owner):
+        raise TaskServiceError(
+            "Only the assigned teammate, Project Lead, or Super Admin can update this subtask's status."
+        )
 
     # Strict acceptance guard: unconfirmed assignees cannot advance a card
     if (
@@ -549,10 +556,11 @@ def move_task_status(
                 f"Complete all {len(incomplete)} remaining subtask(s) before marking the parent task Done."
             )
 
-    # Review Gate guard: Non-creator Members must route through Review for Lead sign-off
+   # Review Gate guard: applies to top-level tasks for non-creator members
     if (
         new_status == "done"
         and settings.require_review_gate
+        and task.parent_task_id is None
         and not (is_lead_or_admin or is_creator)
     ):
         raise TaskServiceError(

@@ -393,13 +393,37 @@
               </div>
               {% for sub in task.subtasks %}
                 {% set is_sub_done_locked = (sub.board_status == 'done') and (not current_user.is_super_admin) %}
-                {% set can_control_sub = (not is_archived) and (not is_sub_done_locked) and (is_lead_or_admin or is_task_owner or sub.assignee_id == current_user.id) %}
+                {% set is_sub_assignee = sub.assignee_id == current_user.id %}
+                {% set can_move_sub = (not is_archived) and (not is_sub_done_locked) and (is_lead_or_admin or is_sub_assignee or (is_task_owner and sub.assignee_id is none)) %}
+                {% set can_escalate_sub = (not is_archived) and (not is_sub_done_locked) and (is_lead_or_admin or is_sub_assignee or is_task_owner) %}
+
                 <div class="tf-subtask-item {% if sub.is_blocked %}tf-subtask-blocked{% endif %}">
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.35rem;">
                     <span style="{% if sub.board_status == 'done' %}text-decoration: line-through; color: var(--text-secondary);{% endif %}">
                       {{ sub.title }}
                     </span>
-                    {% if can_control_sub %}
+
+                    {% if not is_archived and not is_sub_done_locked and sub.assignment_status == 'pending' and is_sub_assignee %}
+                      <div style="display: flex; gap: 0.25rem;">
+                        <form method="POST" action="{{ url_for('board.respond', task_id=sub.id) }}">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                          <input type="hidden" name="decision" value="confirm" />
+                          <button type="submit" class="tf-btn tf-btn-primary" style="padding: 0.15rem 0.45rem; font-size: 0.72rem;">Accept</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('board.respond', task_id=sub.id) }}">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                          <input type="hidden" name="decision" value="decline" />
+                          <input type="hidden" name="decline_reason" value="Declined subtask assignment" />
+                          <button type="submit" class="tf-btn" style="padding: 0.15rem 0.4rem; font-size: 0.72rem;">Decline</button>
+                        </form>
+                      </div>
+                    {% elif sub.assignment_status == 'pending' %}
+                      <span class="tf-pill tf-pill-pending" style="font-size: 0.68rem;">Pending</span>
+                    {% elif sub.assignment_status == 'declined' %}
+                      <span class="tf-pill tf-pill-urgent" style="font-size: 0.68rem;">Declined</span>
+                    {% elif sub.board_status == 'done' and not current_user.is_super_admin %}
+                      <span class="tf-pill tf-pill-done" style="font-size: 0.68rem;">Done ✓</span>
+                    {% elif can_move_sub %}
                       <form method="POST" action="{{ url_for('board.move', task_id=sub.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                         <select name="board_status" class="tf-mini-select" style="padding: 0.15rem 0.3rem; font-size: 0.74rem;" onchange="this.form.submit()">
@@ -416,7 +440,7 @@
                   <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
                     Due {{ sub.due_date.strftime('%Y-%m-%d') }} · {{ sub.assignee.full_name if sub.assignee else 'Unassigned' }}
                     {% if sub.is_blocked %}
-                      · <span style="color: var(--status-urgent); font-weight: 500;">Help Requested</span>
+                      · <span style="color: var(--status-urgent); font-weight: 500;">Escalated</span>
                     {% endif %}
                   </div>
 
@@ -426,7 +450,6 @@
                     </div>
                   {% endif %}
 
-                  <!-- Lead / Admin ONLY: Assign or Reassign Subtask Helper -->
                   {% if not is_archived and not is_sub_done_locked and is_lead_or_admin %}
                     <form method="POST" action="{{ url_for('board.reassign', task_id=sub.id) }}" style="margin-top: 0.35rem; display: flex; gap: 0.3rem;">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
@@ -441,24 +464,29 @@
                       </select>
                       <button type="submit" class="tf-btn" style="padding: 0.15rem 0.45rem; font-size: 0.72rem;">Assign</button>
                     </form>
-                  {% elif can_control_sub %}
-                    <!-- Regular Member: Subtle Request Help / Clear Help Escalation -->
+                  {% elif can_escalate_sub %}
                     {% if not sub.is_blocked %}
                       <details style="margin-top: 0.25rem;">
-                        <summary style="margin: 0; font-size: 0.72rem;">Request Help</summary>
+                        <summary style="margin: 0; font-size: 0.72rem;">
+                          {% if is_task_owner and not is_sub_assignee and sub.assignee_id is not none %}
+                            Escalate Delay
+                          {% else %}
+                            Request Help
+                          {% endif %}
+                        </summary>
                         <form method="POST" action="{{ url_for('board.blocker', task_id=sub.id) }}" style="margin-top: 0.3rem; display: flex; gap: 0.3rem;">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                           <input type="hidden" name="action" value="set" />
                           <input type="hidden" name="blocker_type" value="internal" />
-                          <input type="text" name="blocker_reason" class="tf-mini-input" style="padding: 0.22rem 0.4rem; font-size: 0.73rem;" placeholder="e.g., Need backend API endpoint" required />
+                          <input type="text" name="blocker_reason" class="tf-mini-input" style="padding: 0.22rem 0.4rem; font-size: 0.73rem;" placeholder="Reason for Lead escalation..." required />
                           <button type="submit" class="tf-btn" style="padding: 0.2rem 0.45rem; font-size: 0.72rem; white-space: nowrap;">Escalate</button>
                         </form>
                       </details>
-                    {% else %}
+                    {% elif is_sub_assignee or is_task_owner %}
                       <form method="POST" action="{{ url_for('board.blocker', task_id=sub.id) }}" style="margin-top: 0.3rem;">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                         <input type="hidden" name="action" value="clear" />
-                        <button type="submit" class="tf-btn" style="padding: 0.15rem 0.45rem; font-size: 0.71rem;">Cancel Help Request</button>
+                        <button type="submit" class="tf-btn" style="padding: 0.15rem 0.45rem; font-size: 0.71rem;">Clear Escalation</button>
                       </form>
                     {% endif %}
                   {% endif %}
