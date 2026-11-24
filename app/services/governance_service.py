@@ -262,11 +262,10 @@ def archive_project(
     project.status = "archived"
 
     # Revoke any active public client share links automatically
-    active_links = ProjectShareLink.query.filter_by(
-        project_id=project.id, is_revoked=False
-    ).all()
+    active_links = ProjectShareLink.query.filter_by(project_id=project.id).all()
+    revoked_count = len(active_links)
     for link in active_links:
-        link.is_revoked = True
+        db.session.delete(link)
 
     db.session.add(
         AuditLog(
@@ -279,7 +278,7 @@ def archive_project(
             reason=clean_reason,
             diff_payload={
                 "before": {"status": old_status},
-                "after": {"status": "archived", "revoked_share_links": len(active_links)},
+                "after": {"status": "archived", "revoked_share_links": revoked_count},
             },
         )
     )
@@ -337,6 +336,58 @@ def request_project_deletion(
     db.session.add(log_entry)
     db.session.commit()
     return log_entry
+
+def unarchive_project(
+    *,
+    project_id: int,
+    actor: User,
+    reason: str,
+) -> Project:
+    """Allows a Super Admin (or Project Lead) to reopen an archived project at most once."""
+    project = Project.query.filter_by(
+        id=project_id, organization_id=actor.organization_id
+    ).first()
+    if project is None:
+        raise GovernanceServiceError("Project not found in your workspace.")
+
+    if actor.role != "super_admin" and project.lead_id != actor.id:
+        raise GovernanceServiceError("Only the Project Lead or Super Admin can reopen an archived project.")
+
+    if project.status != "archived":
+        raise GovernanceServiceError("Only archived projects can be reopened.")
+
+    prior_reopens = AuditLog.query.filter_by(
+        organization_id=actor.organization_id,
+        project_id=project.id,
+        action="project_unarchived",
+    ).count()
+    if prior_reopens >= 1:
+        raise GovernanceServiceError(
+            "One-time reopen limit reached: this project has already been unarchived once."
+        )
+
+    clean_reason = (reason or "").strip()
+    if len(clean_reason) < 5:
+        raise GovernanceServiceError("Please provide an audit reason (at least 5 characters) to reopen this project.")
+
+    project.status = "active"
+    db.session.add(
+        AuditLog(
+            organization_id=actor.organization_id,
+            actor_id=actor.id,
+            project_id=project.id,
+            target_type="project",
+            target_id=project.id,
+            action="project_unarchived",
+            reason=clean_reason,
+            diff_payload={
+                "before": {"status": "archived"},
+                "after": {"status": "active", "reopen_count": prior_reopens + 1},
+            },
+        )
+    )
+    db.session.commit()
+    return project
 
 
 def delete_empty_project(

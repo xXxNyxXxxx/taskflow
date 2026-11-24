@@ -65,6 +65,13 @@ class User(UserMixin, db.Model):
     point_entries: Mapped[list["PointLedger"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    role: Mapped[str] = mapped_column(
+        db.String(20), nullable=False, default="member"
+    )  # 'super_admin' | 'project_lead' | 'member'
+    specialty_tag: Mapped[str | None] = mapped_column(
+        db.String(60), nullable=True
+    )  # e.g., 'Design', 'Engineering', 'QA'
+    avatar_url: Mapped[str | None] = mapped_column(db.String(512), nullable=True)
 
     @property
     def is_super_admin(self) -> bool:
