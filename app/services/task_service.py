@@ -22,7 +22,7 @@ class ConcurrencyConflictError(TaskServiceError):
 
 VALID_BOARD_STATUSES = ("todo", "in_progress", "review", "done")
 VALID_PRIORITIES = ("low", "medium", "high", "critical")
-VALID_BLOCKER_TYPES = ("client", "internal", "external")
+VALID_BLOCKER_TYPES = ("client", "internal")
 
 
 def utc_now() -> datetime:
@@ -54,9 +54,18 @@ def get_tenant_task(task_id: int, organization_id: int) -> Task:
         raise TaskServiceError("Task not found in your workspace.")
     return task
 
+
 def _assert_project_mutable(project: Project) -> None:
     if project.status == "archived":
         raise TaskServiceError("This project is archived and read-only.")
+
+
+def _assert_task_unlocked(task: Task, actor: User) -> None:
+    if task.board_status == "done" and actor.role != "super_admin":
+        raise TaskServiceError(
+            "Completed tasks are locked. Only a Super Admin can reopen or modify a Done task."
+        )
+
 
 def _resolve_initial_assignment(
     *,
@@ -200,6 +209,8 @@ def instantiate_project_template(
     commit: bool = True,
 ) -> list[Task]:
     """Clones template tasks onto a project while clamping all due dates <= est_completion_date."""
+    _assert_project_mutable(project)
+
     template = ProjectTemplate.query.filter_by(
         id=template_id, organization_id=project.organization_id
     ).first()
@@ -257,7 +268,7 @@ def instantiate_project_template(
 
 
 # ============================================================================
-# 2. 2-Tier Task Creation & Cascading Date Caps
+# 2. 2-Tier Task Creation, Strict Self-Ownership & Cascading Date Caps
 # ============================================================================
 
 def create_task(
@@ -272,6 +283,7 @@ def create_task(
     parent_task_id: int | None = None,
 ) -> Task:
     project = get_tenant_project(project_id, actor.organization_id)
+    _assert_project_mutable(project)
     settings = project.organization.settings
 
     clean_title = (title or "").strip()
@@ -293,6 +305,7 @@ def create_task(
         ).first()
         if parent_task is None:
             raise TaskServiceError("Parent task not found in this project.")
+        _assert_task_unlocked(parent_task, actor)
         if parent_task.parent_task_id is not None:
             raise TaskServiceError("Maximum 2-tier hierarchy enforced: subtasks cannot have child subtasks.")
         if due_date > parent_task.due_date:
@@ -300,11 +313,15 @@ def create_task(
                 f"Subtask due date ({due_date}) cannot exceed parent task due date ({parent_task.due_date})."
             )
         # Only Super Admin, Project Lead, or Parent Task Assignee can create subtasks
-        if (
-            actor.role == "member"
-            and parent_task.assignee_id != actor.id
-        ):
+        if actor.role == "member" and parent_task.assignee_id != actor.id:
             raise TaskServiceError("Members can only add subtasks under parent tasks assigned to them.")
+
+        # Strict Self-Ownership: Members can only self-assign or leave unassigned
+        if actor.role == "member":
+            if assignee_id not in (None, actor.id):
+                raise TaskServiceError(
+                    "Members cannot assign subtasks to other teammates. Flag the subtask for help to escalate to your Project Lead."
+                )
     else:
         if actor.role not in ("super_admin", "project_lead"):
             raise TaskServiceError("Only Project Leads or Super Admins can create top-level tasks.")
@@ -314,6 +331,14 @@ def create_task(
         organization_id=actor.organization_id,
         settings=settings,
     )
+
+    # Auto-confirm when a Member self-assigns their own subtask
+    if (
+        parent_task is not None
+        and actor.role == "member"
+        and resolved_assignee_id == actor.id
+    ):
+        assignment_status = "confirmed"
 
     task = Task(
         project_id=project.id,
@@ -352,6 +377,9 @@ def respond_to_assignment(
     decline_reason: str | None = None,
 ) -> Task:
     task = get_tenant_task(task_id, actor.organization_id)
+    _assert_project_mutable(task.project)
+    _assert_task_unlocked(task, actor)
+
     if task.assignee_id != actor.id:
         raise TaskServiceError("Only the assigned user can accept or decline this task.")
 
@@ -379,23 +407,60 @@ def respond_to_assignment(
     return task
 
 
+def request_task_reclaim(
+    *,
+    task_id: int,
+    actor: User,
+    reason: str,
+) -> Task:
+    """Allows a user who previously declined a task to request Lead approval to take it back."""
+    task = get_tenant_task(task_id, actor.organization_id)
+    _assert_project_mutable(task.project)
+    _assert_task_unlocked(task, actor)
+
+    if task.assignee_id != actor.id:
+        raise TaskServiceError("Only the previously appointed assignee can request to reclaim this task.")
+
+    if task.assignment_status != "declined":
+        raise TaskServiceError("Only declined tasks can be requested for reclaim.")
+
+    clean_reason = (reason or "").strip()
+    if len(clean_reason) < 3:
+        raise TaskServiceError("Please provide a brief note for the Project Lead.")
+
+    task.assignment_status = "pending"
+    task.assigned_at = utc_now()
+    db.session.add(
+        TaskComment(
+            task_id=task.id,
+            author_id=actor.id,
+            body=f"[Reclaim Requested — Awaiting Lead Approval]: {clean_reason}",
+        )
+    )
+    db.session.commit()
+    return task
+
+
 def reassign_task(
     *,
     task_id: int,
     actor: User,
     new_assignee_id: int | None,
+    resolve_blocker: bool = True,
 ) -> Task:
     task = get_tenant_task(task_id, actor.organization_id)
     project = task.project
+    _assert_project_mutable(project)
+    _assert_task_unlocked(task, actor)
     settings = project.organization.settings
 
-    can_reassign = (
-        actor.role == "super_admin"
-        or project.lead_id == actor.id
-        or (task.parent_task is not None and task.parent_task.assignee_id == actor.id)
-    )
+    # Strict RBAC: Only Super Admin or Project Lead can assign/reassign tasks or subtasks
+    can_reassign = actor.role == "super_admin" or project.lead_id == actor.id
     if not can_reassign:
-        raise TaskServiceError("You do not have permission to reassign this task.")
+        raise TaskServiceError("Only the Project Lead or Super Admin can assign or reassign tasks.")
+
+    old_assignee_id = task.assignee_id
+    was_blocked_subtask = task.parent_task_id is not None and task.is_blocked
 
     resolved_id, status, assigned_at = _resolve_initial_assignment(
         assignee_id=new_assignee_id,
@@ -405,6 +470,29 @@ def reassign_task(
     task.assignee_id = resolved_id
     task.assignment_status = status
     task.assigned_at = assigned_at
+
+    if was_blocked_subtask and resolved_id is not None:
+        if resolve_blocker:
+            task.is_blocked = False
+            task.blocker_type = None
+            task.blocker_reason = None
+
+        db.session.add(
+            AuditLog(
+                organization_id=actor.organization_id,
+                actor_id=actor.id,
+                project_id=project.id,
+                target_type="task",
+                target_id=task.id,
+                action="subtask_help_assigned",
+                reason=f"Assigned helper (User #{resolved_id}) to escalated subtask '{task.title}'.",
+                diff_payload={
+                    "before": {"assignee_id": old_assignee_id, "is_blocked": True},
+                    "after": {"assignee_id": resolved_id, "is_blocked": task.is_blocked},
+                },
+            )
+        )
+
     db.session.commit()
     return task
 
@@ -421,6 +509,8 @@ def move_task_status(
 
     task = get_tenant_task(task_id, actor.organization_id)
     project = task.project
+    _assert_project_mutable(project)
+    _assert_task_unlocked(task, actor)
     settings = project.organization.settings
 
     if expected_current_status and task.board_status != expected_current_status:
@@ -430,6 +520,7 @@ def move_task_status(
 
     is_lead_or_admin = actor.role == "super_admin" or project.lead_id == actor.id
     is_assignee = task.assignee_id == actor.id
+    is_creator = task.created_by_id == actor.id
 
     if not (is_lead_or_admin or is_assignee):
         raise TaskServiceError("Only the task assignee, Project Lead, or Super Admin can move this card.")
@@ -458,10 +549,32 @@ def move_task_status(
                 f"Complete all {len(incomplete)} remaining subtask(s) before marking the parent task Done."
             )
 
-    # Review Gate guard: Members cannot skip straight to Done when require_review_gate=True
-    if new_status == "done" and settings.require_review_gate and not is_lead_or_admin:
+    # Review Gate guard: Non-creator Members must route through Review for Lead sign-off
+    if (
+        new_status == "done"
+        and settings.require_review_gate
+        and not (is_lead_or_admin or is_creator)
+    ):
         raise TaskServiceError(
             "Workspace Review Gate is active: move this card to Review for Project Lead sign-off."
+        )
+
+    # Super Admin override audit when reopening a locked 'done' task
+    if task.board_status == "done" and new_status != "done" and actor.role == "super_admin":
+        db.session.add(
+            AuditLog(
+                organization_id=actor.organization_id,
+                actor_id=actor.id,
+                project_id=project.id,
+                target_type="task",
+                target_id=task.id,
+                action="done_task_reopened",
+                reason=f"Super Admin reopened completed task from Done to {new_status}.",
+                diff_payload={
+                    "before": {"board_status": "done"},
+                    "after": {"board_status": new_status},
+                },
+            )
         )
 
     task.board_status = new_status
@@ -476,7 +589,7 @@ def move_task_status(
 
 
 # ============================================================================
-# 4. Blocker Flags & Deadline Extensions (Internal vs. Client-Blocked)
+# 4. Blocker Flags, Subtask Help Escalation & Deadline Extensions
 # ============================================================================
 
 def toggle_task_blocker(
@@ -489,23 +602,46 @@ def toggle_task_blocker(
 ) -> Task:
     task = get_tenant_task(task_id, actor.organization_id)
     project = task.project
+    _assert_project_mutable(project)
+    _assert_task_unlocked(task, actor)
 
+    is_parent_owner = task.parent_task is not None and task.parent_task.assignee_id == actor.id
     if not (
         actor.role == "super_admin"
         or project.lead_id == actor.id
         or task.assignee_id == actor.id
+        or is_parent_owner
     ):
         raise TaskServiceError("Not authorized to update blocker status on this task.")
 
     if is_blocked:
         if blocker_type not in VALID_BLOCKER_TYPES:
-            raise TaskServiceError("Blocker type must be 'client', 'internal', or 'external'.")
+            raise TaskServiceError("Blocker type must be 'client' or 'internal'.")
         clean_reason = (blocker_reason or "").strip()
         if len(clean_reason) < 3:
             raise TaskServiceError("Please provide a brief blocker reason.")
         task.is_blocked = True
         task.blocker_type = blocker_type
         task.blocker_reason = clean_reason
+
+        # Escalate subtask help requests to Project Lead & Workspace Admin via AuditLog
+        if task.parent_task_id is not None:
+            db.session.add(
+                AuditLog(
+                    organization_id=actor.organization_id,
+                    actor_id=actor.id,
+                    project_id=project.id,
+                    target_type="task",
+                    target_id=task.id,
+                    action="subtask_help_requested",
+                    reason=clean_reason,
+                    diff_payload={
+                        "subtask_title": task.title,
+                        "parent_task_id": task.parent_task_id,
+                        "blocker_type": blocker_type,
+                    },
+                )
+            )
     else:
         task.is_blocked = False
         task.blocker_type = None
@@ -525,6 +661,8 @@ def extend_task_deadline(
 ) -> DeadlineExtension:
     task = get_tenant_task(task_id, actor.organization_id)
     project = task.project
+    _assert_project_mutable(project)
+    _assert_task_unlocked(task, actor)
 
     if actor.role != "super_admin" and project.lead_id != actor.id:
         raise TaskServiceError("Only the Project Lead or Super Admin can approve deadline extensions.")
@@ -588,6 +726,8 @@ def extend_task_deadline(
 
 def add_task_comment(*, task_id: int, actor: User, body: str) -> TaskComment:
     task = get_tenant_task(task_id, actor.organization_id)
+    _assert_project_mutable(task.project)
+
     clean_body = (body or "").strip()
     if not clean_body:
         raise TaskServiceError("Comment cannot be empty.")

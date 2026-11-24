@@ -94,15 +94,44 @@ def board(project_id: int):
     settings = org.settings
     sla_hours = settings.pending_sla_hours if settings else 48
 
-    # Group top-level parent tasks by Kanban column; subtasks nest inside their parent card
+    task_filter = request.args.get("filter", "all").strip().lower()
+    if task_filter not in ("all", "mine", "unassigned", "declined"):
+        task_filter = "all"
+
+    is_lead_or_admin = current_user.is_super_admin or project.lead_id == current_user.id
+
     columns = {"todo": [], "in_progress": [], "review": [], "done": []}
     expired_pending_ids = set()
+    declined_count = 0
 
     for task in project.tasks:
         if is_pending_sla_expired(task, sla_hours):
             expired_pending_ids.add(task.id)
-        if task.parent_task_id is None:
-            columns.setdefault(task.board_status, []).append(task)
+        if task.parent_task_id is not None:
+            continue
+
+        if task.assignment_status == "declined":
+            declined_count += 1
+
+        # Apply calm focus filters
+        if task_filter == "declined":
+            if task.assignment_status != "declined":
+                continue
+        else:
+            # Hide declined tasks from regular views for members (leads still see them in 'all' or 'declined')
+            if task.assignment_status == "declined" and not is_lead_or_admin:
+                continue
+            if task_filter == "mine" and task.assignee_id != current_user.id:
+                continue
+            if task_filter == "unassigned" and task.assignee_id is not None:
+                continue
+
+        columns.setdefault(task.board_status, []).append(task)
+
+    escalated_subtasks = [
+        t for t in project.tasks
+        if t.parent_task_id is not None and t.is_blocked
+    ]
 
     members = (
         User.query.filter_by(organization_id=org.id, is_active=True)
@@ -125,6 +154,9 @@ def board(project_id: int):
         templates=templates,
         template_form=template_form,
         expired_pending_ids=expired_pending_ids,
+        task_filter=task_filter,
+        declined_count=declined_count,
+        escalated_subtasks=escalated_subtasks,
     )
 
 
@@ -172,6 +204,7 @@ from app.services.governance_service import (
     GovernanceServiceError,
     archive_project,
     request_project_deletion,
+    unarchive_project,
 )
 
 
@@ -186,6 +219,25 @@ def archive(project_id: int):
     except GovernanceServiceError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("projects.board", project_id=project_id))
+
+from app.services.governance_service import (
+    GovernanceServiceError,
+    archive_project,
+    request_project_deletion,
+    unarchive_project,
+)
+
+
+@projects_bp.post("/<int:project_id>/unarchive")
+@role_required("super_admin", "project_lead")
+def unarchive(project_id: int):
+    reason = request.form.get("reason", "")
+    try:
+        proj = unarchive_project(project_id=project_id, actor=current_user, reason=reason)
+        flash(f"Project '{proj.title}' has been reopened (1-time unarchive used).", "success")
+    except GovernanceServiceError as exc:
+        flash(str(exc), "danger")
+    return redirect(url_for("projects.board", project_id=project_id))
 
 
 @projects_bp.post("/<int:project_id>/request-delete")

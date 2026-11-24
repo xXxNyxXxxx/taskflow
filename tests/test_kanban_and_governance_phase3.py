@@ -381,3 +381,75 @@ def test_board_html_renders_comments_and_subtasks_cleanly(client, db_session):
     assert b"Parent Card" in res.data
     assert b"Child Subtask" in res.data
     assert b"Checking comment author rendering." in res.data
+
+
+def test_subtask_self_ownership_and_help_escalation_workflow(db_session):
+    from app.services.task_service import reassign_task
+
+    org, admin, lead, lead2, member = seed_workspace(db_session, slug="subtask-esc-org")
+    lead2.specialty_tag = "Engineering"
+    db_session.commit()
+
+    project = create_project(
+        actor=lead,
+        title="Escalation Flow Project",
+        description=None,
+        est_completion_date=date.today() + timedelta(days=12),
+    )
+    parent = create_task(
+        project_id=project.id,
+        actor=lead,
+        title="Build Checkout Page",
+        due_date=date.today() + timedelta(days=8),
+        assignee_id=member.id,
+    )
+
+    # 1. Member cannot assign a subtask directly to Super Admin or another teammate
+    with pytest.raises(TaskServiceError, match="Members cannot assign subtasks to other teammates"):
+        create_task(
+            project_id=project.id,
+            actor=member,
+            title="Configure Stripe Secret",
+            due_date=date.today() + timedelta(days=5),
+            assignee_id=admin.id,
+            parent_task_id=parent.id,
+        )
+
+    # 2. Member creates a self-owned subtask cleanly
+    subtask = create_task(
+        project_id=project.id,
+        actor=member,
+        title="Wire Payment Intent Hook",
+        due_date=date.today() + timedelta(days=5),
+        assignee_id=member.id,
+        parent_task_id=parent.id,
+    )
+    assert subtask.assignee_id == member.id
+    assert subtask.assignment_status == "confirmed"
+
+    # 3. Member cannot directly reassign subtask to another user
+    with pytest.raises(TaskServiceError, match="Only the Project Lead or Super Admin"):
+        reassign_task(task_id=subtask.id, actor=member, new_assignee_id=lead2.id)
+
+    # 4. Member flags subtask for help -> escalates via AuditLog ('subtask_help_requested')
+    toggle_task_blocker(
+        task_id=subtask.id,
+        actor=member,
+        is_blocked=True,
+        blocker_type="internal",
+        blocker_reason="Need backend API endpoint",
+    )
+    assert subtask.is_blocked is True
+    req_log = AuditLog.query.filter_by(
+        organization_id=org.id, target_id=subtask.id, action="subtask_help_requested"
+    ).first()
+    assert req_log is not None
+
+    # 5. Project Lead assigns helper -> clears blocker and logs 'subtask_help_assigned'
+    reassign_task(task_id=subtask.id, actor=lead, new_assignee_id=lead2.id, resolve_blocker=True)
+    assert subtask.assignee_id == lead2.id
+    assert subtask.is_blocked is False
+    assigned_log = AuditLog.query.filter_by(
+        organization_id=org.id, target_id=subtask.id, action="subtask_help_assigned"
+    ).first()
+    assert assigned_log is not None

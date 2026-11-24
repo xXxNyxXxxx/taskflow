@@ -14,6 +14,7 @@ from app.services.task_service import (
     reassign_task,
     respond_to_assignment,
     toggle_task_blocker,
+    request_task_reclaim
 )
 
 
@@ -42,6 +43,11 @@ def create(project_id: int):
     priority = request.form.get("priority", "medium")
     assignee_id = request.form.get("assignee_id", type=int) or None
     parent_task_id = request.form.get("parent_task_id", type=int) or None
+
+    # Strict Self-Ownership guard for standard Members creating subtasks
+    if current_user.role == "member" and parent_task_id is not None:
+        raw_assignee = (request.form.get("assignee_id") or "").strip().lower()
+        assignee_id = None if raw_assignee == "unassigned" else current_user.id
 
     try:
         due_date = _parse_iso_date(request.form.get("due_date"))
@@ -130,11 +136,14 @@ def respond(task_id: int):
 @login_required
 def reassign(task_id: int):
     new_assignee_id = request.form.get("assignee_id", type=int) or None
+    resolve_blocker = request.form.get("resolve_blocker", "1").strip() == "1"
+
     try:
         task = reassign_task(
             task_id=task_id,
             actor=current_user,
             new_assignee_id=new_assignee_id,
+            resolve_blocker=resolve_blocker,
         )
         flash("Task assignee updated.", "success")
         return redirect(url_for("projects.board", project_id=task.project_id))
@@ -208,6 +217,27 @@ def comment(task_id: int):
         cmt = add_task_comment(task_id=task_id, actor=current_user, body=body)
         flash("Comment added.", "success")
         return redirect(url_for("projects.board", project_id=cmt.task.project_id))
+    except TaskServiceError as exc:
+        flash(str(exc), "danger")
+        try:
+            task = get_tenant_task(task_id, current_user.organization_id)
+            return redirect(url_for("projects.board", project_id=task.project_id))
+        except TaskServiceError:
+            return redirect(url_for("projects.index"))
+
+
+@board_bp.post("/<int:task_id>/reclaim")
+@login_required
+def reclaim(task_id: int):
+    reason = request.form.get("reason", "")
+    try:
+        task = request_task_reclaim(
+            task_id=task_id,
+            actor=current_user,
+            reason=reason,
+        )
+        flash("Reclaim request sent to Project Lead for approval.", "info")
+        return redirect(url_for("projects.board", project_id=task.project_id))
     except TaskServiceError as exc:
         flash(str(exc), "danger")
         try:
