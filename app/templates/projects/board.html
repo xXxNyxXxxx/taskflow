@@ -246,25 +246,31 @@
             <button type="submit" class="tf-btn" style="justify-content: center;">Archive Project</button>
           </form>
 
-          {% if current_user.is_super_admin and project.lead_id == current_user.id %}
-          <form method="POST" action="{{ url_for('admin.purge_project', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-            <span style="font-size: 0.76rem; color: var(--status-urgent);">Permanent Purge (only if empty &amp; unused)</span>
-            <input type="text" name="reason" class="tf-mini-input" placeholder="Deletion reason..." required />
-            <button type="submit" class="tf-btn" style="justify-content: center;">Delete Empty Project</button>
-          </form>
-        {% elif current_user.is_super_admin %}
-          <div style="font-size: 0.76rem; color: var(--text-secondary); padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
-            Owned by <strong>{{ project.lead.full_name }}</strong>. Deletion requires a request from the Project Lead (reviewable in <a href="{{ url_for('admin.governance') }}" style="color: var(--accent-primary);">Team &amp; Governance</a>).
-          </div>
-        {% else %}
-          <form method="POST" action="{{ url_for('projects.request_delete', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-            <span style="font-size: 0.76rem; color: var(--text-secondary);">Created in error? Request Super Admin deletion</span>
-            <input type="text" name="reason" class="tf-mini-input" placeholder="Why should this be deleted?" required />
-            <button type="submit" class="tf-btn" style="justify-content: center;">Request Deletion</button>
-          </form>
-        {% endif %}
+          {% if current_user.is_super_admin and (project.lead_id == current_user.id or has_pending_delete_request) %}
+            <form method="POST" action="{{ url_for('admin.purge_project', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <span style="font-size: 0.76rem; color: var(--status-urgent);">
+                {% if has_pending_delete_request %}Lead Requested Deletion Approve &amp; Purge{% else %}Permanent Purge (only if empty &amp; unused){% endif %}
+              </span>
+              <input type="text" name="reason" class="tf-mini-input" placeholder="Deletion confirmation reason (min 5 chars)..." minlength="5" required />
+              <button type="submit" class="tf-btn" style="justify-content: center;">Approve &amp; Delete Project</button>
+            </form>
+          {% elif current_user.is_super_admin %}
+            <div style="font-size: 0.76rem; color: var(--text-secondary); padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+              Owned by <strong>{{ project.lead.full_name }}</strong>. Deletion requires a request from the Project Lead (reviewable in <a href="{{ url_for('admin.governance') }}">Team &amp; Governance</a>).
+            </div>
+          {% elif has_pending_delete_request %}
+            <div style="font-size: 0.76rem; color: var(--accent-primary); padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+              Deletion request submitted.. awaiting Super Admin approval.
+            </div>
+          {% else %}
+            <form method="POST" action="{{ url_for('projects.request_delete', project_id=project.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <span style="font-size: 0.76rem; color: var(--text-secondary);">Created in error? Request Super Admin deletion</span>
+              <input type="text" name="reason" class="tf-mini-input" placeholder="Why should this be deleted? (min 5 chars)" minlength="5" required />
+              <button type="submit" class="tf-btn" style="justify-content: center;">Request Deletion</button>
+            </form>
+          {% endif %}
         </div>
       </details>
     {% endif %}
