@@ -264,12 +264,25 @@ from app.services.governance_service import (
 def purge_project(project_id: int):
     reason = request.form.get("reason", "")
     try:
-        title = delete_empty_project(
-            project_id=project_id,
-            actor=current_user,
-            reason=reason,
+        deleted_title = delete_empty_project(
+            project_id=project_id, actor=current_user, reason=reason
         )
-        flash(f"Permanently deleted unused project '{title}'.", "info")
+        flash(f"Project '{deleted_title}' has been permanently deleted.", "success")
+        return redirect(url_for("projects.index"))
+    except GovernanceServiceError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("projects.board", project_id=project_id))
+
+
+@admin_bp.post("/governance/projects/<int:project_id>/reject-delete")
+@role_required("super_admin")
+def reject_delete_request(project_id: int):
+    reason = request.form.get("reason", "")
+    try:
+        proj = reject_project_deletion(
+            project_id=project_id, actor=current_user, reason=reason
+        )
+        flash(f"Declined deletion request for '{proj.title}'.", "info")
     except GovernanceServiceError as exc:
         flash(str(exc), "danger")
     return redirect(url_for("admin.governance"))

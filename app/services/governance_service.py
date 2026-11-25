@@ -357,7 +357,7 @@ def transfer_project_lead(
             project_id=project.id,
             target_type="project",
             target_id=project.id,
-            action="lead_handover",
+            action="lead_transferred",
             reason=clean_reason,
             diff_payload={
                 "before": {"lead_id": old_lead_id},
@@ -375,7 +375,7 @@ def soft_remove_member(
     actor: User,
     reason: str,
 ) -> User:
-    """Soft-removes a user while blocking deactivation if they still own active projects."""
+    """Soft-removes a user, blocks deactivation if they lead active projects, and unassigns open tasks."""
     if actor.role != "super_admin":
         raise GovernanceServiceError("Only a Super Admin can deactivate workspace members.")
 
@@ -404,6 +404,21 @@ def soft_remove_member(
         )
 
     target.is_active = False
+
+    # Unassign all open (non-Done) tasks assigned to this member across the workspace
+    open_tasks = (
+        Task.query.join(Project, Task.project_id == Project.id)
+        .filter(
+            Project.organization_id == actor.organization_id,
+            Task.assignee_id == target.id,
+            Task.board_status != "done",
+        )
+        .all()
+    )
+    for t in open_tasks:
+        t.assignee_id = None
+        t.assignment_status = "unassigned"
+
     db.session.add(
         AuditLog(
             organization_id=actor.organization_id,
@@ -415,7 +430,10 @@ def soft_remove_member(
             reason=clean_reason,
             diff_payload={
                 "before": {"is_active": True},
-                "after": {"is_active": False},
+                "after": {
+                    "is_active": False,
+                    "unassigned_open_tasks": len(open_tasks),
+                },
             },
         )
     )
