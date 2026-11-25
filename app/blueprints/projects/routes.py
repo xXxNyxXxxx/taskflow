@@ -4,6 +4,7 @@ from flask_login import current_user, login_required
 from app.blueprints.projects import projects_bp
 from app.blueprints.projects.forms import ProjectCreateForm, SaveTemplateForm
 from app.models import Project, ProjectTemplate, User
+from app.models.governance import AuditLog
 from app.services.task_service import (
     TaskServiceError,
     create_project,
@@ -133,6 +134,15 @@ def board(project_id: int):
         if t.parent_task_id is not None and t.is_blocked
     ]
 
+    has_pending_delete_request = (
+        AuditLog.query.filter_by(
+            organization_id=org.id,
+            project_id=project.id,
+            action="project_delete_requested",
+        ).first()
+        is not None
+    )
+
     members = (
         User.query.filter_by(organization_id=org.id, is_active=True)
         .order_by(User.full_name.asc())
@@ -157,6 +167,7 @@ def board(project_id: int):
         task_filter=task_filter,
         declined_count=declined_count,
         escalated_subtasks=escalated_subtasks,
+        has_pending_delete_request=has_pending_delete_request,
     )
 
 

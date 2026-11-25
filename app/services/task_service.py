@@ -413,7 +413,7 @@ def request_task_reclaim(
     actor: User,
     reason: str,
 ) -> Task:
-    """Allows a user who previously declined a task to request Lead approval to take it back."""
+    """Returns a declined task to the Unassigned queue and logs a reclaim request for Lead review."""
     task = get_tenant_task(task_id, actor.organization_id)
     _assert_project_mutable(task.project)
     _assert_task_unlocked(task, actor)
@@ -428,13 +428,15 @@ def request_task_reclaim(
     if len(clean_reason) < 3:
         raise TaskServiceError("Please provide a brief note for the Project Lead.")
 
-    task.assignment_status = "pending"
-    task.assigned_at = utc_now()
+    task.assignee_id = None
+    task.assignment_status = "unassigned"
+    task.assigned_at = None
+
     db.session.add(
         TaskComment(
             task_id=task.id,
             author_id=actor.id,
-            body=f"[Reclaim Requested — Awaiting Lead Approval]: {clean_reason}",
+            body=f"[Reclaim Requested by {actor.full_name} — Awaiting Lead Reassignment]: {clean_reason}",
         )
     )
     db.session.commit()

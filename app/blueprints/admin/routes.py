@@ -146,10 +146,13 @@ def revoke_invite(invite_id: int):
 from app.models import AuditLog, InviteCode, Project, User
 from app.services.governance_service import (
     GovernanceServiceError,
+    archive_project,
+    delete_empty_project,
     query_audit_logs,
+    reject_project_deletion,
     soft_remove_member,
     transfer_project_lead,
-    update_member_role,
+    unarchive_project,
 )
 
 

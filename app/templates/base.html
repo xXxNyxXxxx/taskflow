@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="csrf-token" content="{{ csrf_token() }}" />
-  <title>{% block title %}{{ brand_name }}{% endblock %}</title>
+  <title>{% block title %} {{ brand_name }}{% endblock %}</title>
 
   {# Synchronous Zero-Flash Theme Script: executes before CSS paints #}
   <script>
@@ -24,12 +24,21 @@
 
   {# Tenant White-Label Accent Override (Validated 6-digit hex from context processor) #}
   <style>
-    :root,
-    [data-theme="light"] {
-      --accent-primary: {{ brand_light_accent }};
+    :root {
+      --accent-primary: {{ accent_hex or '#4A6B5D' }};
+      --accent-primary-hover: #3B574B;
     }
-    [data-theme="dark"] {
-      --accent-primary: {{ brand_dark_accent }};
+
+    .tf-btn-primary {
+      background-color: var(--accent-primary, #4A6B5D) !important;
+      border-color: var(--accent-primary, #4A6B5D) !important;
+      color: #FFFFFF !important;
+      font-weight: 500;
+    }
+
+    .tf-btn-primary:hover {
+      background-color: var(--accent-primary-hover, #3B574B) !important;
+      color: #FFFFFF !important;
     }
   </style>
 
@@ -56,8 +65,11 @@
         <a href="{{ url_for('auth.dashboard') }}" class="tf-btn" style="border: none; background: transparent;">Overview</a>
         <a href="{{ url_for('projects.index') }}" class="tf-btn" style="border: none; background: transparent;">Projects</a>
         {% if current_user.is_super_admin %}
-          <a href="{{ url_for('admin.governance') }}" class="tf-btn" style="border: none; background: transparent;">
-            Team &amp; Governance
+          <a href="{{ url_for('admin.governance') }}" class="tf-btn" style="border: none; background: transparent; justify-content: space-between;">
+            <span>Team &amp; Governance</span>
+            {% if pending_delete_count > 0 %}
+              <span class="tf-pill tf-pill-urgent">{{ pending_delete_count }}</span>
+            {% endif %}
           </a>
           <a href="{{ url_for('admin.settings') }}" class="tf-btn" style="border: none; background: transparent;">
             Workspace Settings

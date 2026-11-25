@@ -73,36 +73,34 @@ def create_app(config_name: str = "development") -> Flask:
 
     @app.context_processor
     def inject_tenant_branding():
-        """Injects sanitized White-Label Branding & safe CSS accents into all templates."""
-        brand_name = "TaskFlow"
-        logo_url = None
-        light_accent = THEME_ACCENT_PRESETS["calm_sage"]["light"]
-        dark_accent = THEME_ACCENT_PRESETS["calm_sage"]["dark"]
+        from flask_login import current_user
+        from app.models import AuditLog
 
-        if current_user.is_authenticated and current_user.organization:
-            settings = current_user.organization.settings
-            if settings:
-                brand_name = settings.effective_brand_name
-                logo_url = settings.logo_url
-                preset = THEME_ACCENT_PRESETS.get(
-                    settings.theme_preset, THEME_ACCENT_PRESETS["calm_sage"]
-                )
-                light_accent = preset["light"]
-                dark_accent = preset["dark"]
-
-                # Apply custom accent only if strictly valid 6-digit hex
-                if settings.custom_accent_hex and SAFE_HEX_PATTERN.match(
-                    settings.custom_accent_hex
-                ):
-                    light_accent = settings.custom_accent_hex
-                    dark_accent = settings.custom_accent_hex
-
+        pending_delete_count = 0
+        if getattr(current_user, "is_authenticated", False) and current_user.organization:
+            org = current_user.organization
+            settings = org.settings
+            if current_user.is_super_admin:
+                pending_delete_count = AuditLog.query.filter(
+                    AuditLog.organization_id == org.id,
+                    AuditLog.action == "project_delete_requested",
+                    AuditLog.project_id.isnot(None),
+                ).count()
+            return {
+                "current_org": org,
+                "org_settings": settings,
+                "brand_name": org.name,
+                "brand_logo_url": settings.logo_url if settings else None,
+                "accent_hex": settings.custom_accent_hex if settings else "#4A6B5D",
+                "pending_delete_count": pending_delete_count,
+            }
         return {
-            "app_mode": app.config["APP_MODE"],
-            "brand_name": brand_name,
-            "brand_logo_url": logo_url,
-            "brand_light_accent": light_accent,
-            "brand_dark_accent": dark_accent,
+            "current_org": None,
+            "org_settings": None,
+            "brand_name": "TaskFlow",
+            "brand_logo_url": None,
+            "accent_hex": "#4A6B5D",
+            "pending_delete_count": 0,
         }
 
     @app.after_request
