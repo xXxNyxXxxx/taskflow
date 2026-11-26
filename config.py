@@ -52,23 +52,23 @@ class TestingConfig(BaseConfig):
     RATELIMIT_ENABLED = False
 
 
+def _normalize_db_url(raw_url: str | None) -> str | None:
+    if raw_url and raw_url.startswith("postgres://"):
+        return raw_url.replace("postgres://", "postgresql://", 1)
+    return raw_url
+
+
 class ProductionConfig(BaseConfig):
     DEBUG = False
     SESSION_COOKIE_SECURE = True
     REMEMBER_COOKIE_SECURE = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
+    SQLALCHEMY_DATABASE_URI = _normalize_db_url(os.environ.get("DATABASE_URL"))
 
     def __init__(self):
         if not os.environ.get("SECRET_KEY"):
             raise RuntimeError("SECRET_KEY must be set in ProductionConfig")
         if not self.SQLALCHEMY_DATABASE_URI:
             raise RuntimeError("DATABASE_URL must be set in ProductionConfig")
-        # Normalize Render/Heroku postgres:// URI for SQLAlchemy 2.x
-        if self.SQLALCHEMY_DATABASE_URI.startswith("postgres://"):
-            self.SQLALCHEMY_DATABASE_URI = self.SQLALCHEMY_DATABASE_URI.replace(
-                "postgres://", "postgresql://", 1
-            )
-
 
 CONFIG_MAP = {
     "development": DevelopmentConfig,

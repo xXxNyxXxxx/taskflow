@@ -1,0 +1,27 @@
+databases:
+  - name: taskflow-sandbox-db
+    plan: free
+    databaseName: taskflow_sandbox
+    user: taskflow_user
+
+services:
+  - type: web
+    name: taskflow-sandbox
+    runtime: python
+    plan: free
+    branch: uat-sandbox
+    buildCommand: pip install -r requirements.txt && flask db upgrade
+    startCommand: flask seed-dev && gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: FLASK_APP
+        value: run.py
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taskflow-sandbox-db
+          property: connectionString

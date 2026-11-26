@@ -1,9 +1,11 @@
+import os
 import re
 import sqlite3
 from flask import Flask, flash, redirect, url_for
 from flask_login import current_user, logout_user
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 from config import CONFIG_MAP
@@ -29,11 +31,21 @@ def enforce_sqlite_foreign_keys(dbapi_connection, connection_record):
         cursor.close()
 
 
-def create_app(config_name: str = "development") -> Flask:
+def create_app(config_name: str | None = None) -> Flask:
     app = Flask(__name__)
 
-    config_cls = CONFIG_MAP.get(config_name, CONFIG_MAP["development"])
-    app.config.from_object(config_cls() if config_name == "production" else config_cls)
+    resolved_env = (
+        config_name
+        or os.environ.get("FLASK_ENV")
+        or os.environ.get("APP_ENV")
+        or "development"
+    ).strip().lower()
+
+    config_cls = CONFIG_MAP.get(resolved_env, CONFIG_MAP["development"])
+    app.config.from_object(config_cls() if resolved_env == "production" else config_cls)
+
+    if resolved_env == "production":
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     # Initialize extensions
     db.init_app(app)

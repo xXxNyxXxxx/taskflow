@@ -44,9 +44,7 @@ def register_cli_commands(app: Flask) -> None:
             db.drop_all()
             db.create_all()
             click.echo("Database dropped and recreated.")
-        else:
-            db.create_all()
-
+            
         if Organization.query.first():
             click.echo("Database already contains data. Run `flask seed-dev --reset` to rebuild.")
             return
