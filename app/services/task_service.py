@@ -8,7 +8,9 @@ from app.models import (
     ProjectTemplate,
     Task,
     TaskComment,
+    TaskBlocker,
     User,
+
 )
 
 
@@ -23,6 +25,7 @@ class ConcurrencyConflictError(TaskServiceError):
 VALID_BOARD_STATUSES = ("todo", "in_progress", "review", "done")
 VALID_PRIORITIES = ("low", "medium", "high", "critical")
 VALID_BLOCKER_TYPES = ("client", "internal")
+VALID_BLOCKER_RECORD_TYPES = ("help_request","delay_escalation","client_blocked","technical")
 
 
 def utc_now() -> datetime:
@@ -84,6 +87,22 @@ def _resolve_initial_assignment(
 
     status = "confirmed" if settings.acceptance_mode == "direct" else "pending"
     return assignee.id, status, utc_now()
+
+def _sync_task_blocker_flags(task: Task) -> None:
+    """Keeps Task.is_blocked / blocker_type / blocker_reason in sync with open TaskBlocker rows."""
+    latest_open = (
+        TaskBlocker.query.filter_by(task_id=task.id, status="open")
+        .order_by(TaskBlocker.created_at.desc())
+        .first()
+    )
+    if latest_open is None:
+        task.is_blocked = False
+        task.blocker_type = None
+        task.blocker_reason = None
+    else:
+        task.is_blocked = True
+        task.blocker_type = "client" if latest_open.blocker_type == "client_blocked" else "internal"
+        task.blocker_reason = latest_open.reason[:255]
 
 
 # ============================================================================
@@ -475,9 +494,17 @@ def reassign_task(
 
     if was_blocked_subtask and resolved_id is not None:
         if resolve_blocker:
-            task.is_blocked = False
-            task.blocker_type = None
-            task.blocker_reason = None
+         open_blockers = TaskBlocker.query.filter_by(
+             task_id=task.id, status="open"
+         ).all()
+         for b in open_blockers:
+             b.status = "resolved"
+             b.resolved_by_id = actor.id
+             b.resolution_note = f"Resolved via helper reassignment (User #{resolved_id})."
+             b.resolved_at = utc_now()
+         task.is_blocked = False
+         task.blocker_type = None
+         task.blocker_reason = None
 
         db.session.add(
             AuditLog(
@@ -660,6 +687,128 @@ def toggle_task_blocker(
     db.session.commit()
     return task
 
+def raise_task_blocker(
+    *,
+    task_id: int,
+    actor: User,
+    blocker_type: str,
+    reason: str,
+) -> TaskBlocker:
+    """Opens a tracked TaskBlocker (help request, delay escalation, client/technical hurdle)."""
+    task = get_tenant_task(task_id, actor.organization_id)
+    project = task.project
+    _assert_project_mutable(project)
+    _assert_task_unlocked(task, actor)
+
+    if blocker_type not in VALID_BLOCKER_RECORD_TYPES:
+        raise TaskServiceError("Invalid blocker category selected.")
+
+    clean_reason = (reason or "").strip()
+    if len(clean_reason) < 5:
+        raise TaskServiceError("Please provide a clear reason (at least 5 characters).")
+
+    is_lead_or_admin = actor.role == "super_admin" or project.lead_id == actor.id
+    is_assignee = task.assignee_id == actor.id
+    is_parent_owner = task.parent_task is not None and task.parent_task.assignee_id == actor.id
+
+    if not (is_lead_or_admin or is_assignee or is_parent_owner):
+        raise TaskServiceError("Not authorized to log a blocker on this task.")
+
+    if blocker_type == "delay_escalation" and not (is_lead_or_admin or is_parent_owner):
+        raise TaskServiceError(
+            "Only the Main Task owner, Project Lead, or Super Admin can raise a delay escalation."
+        )
+
+    blocker = TaskBlocker(
+        organization_id=actor.organization_id,
+        task_id=task.id,
+        raised_by_id=actor.id,
+        blocker_type=blocker_type,
+        reason=clean_reason,
+        status="open",
+    )
+    db.session.add(blocker)
+    db.session.flush()
+    _sync_task_blocker_flags(task)
+
+    db.session.add(
+        AuditLog(
+            organization_id=actor.organization_id,
+            actor_id=actor.id,
+            project_id=project.id,
+            target_type="task",
+            target_id=task.id,
+            action="task_blocker_raised",
+            reason=clean_reason,
+            diff_payload={
+                "blocker_id": blocker.id,
+                "blocker_type": blocker_type,
+                "task_title": task.title,
+            },
+        )
+    )
+    db.session.commit()
+    return blocker
+
+
+def resolve_task_blocker(
+    *,
+    blocker_id: int,
+    actor: User,
+    resolution_note: str,
+) -> TaskBlocker:
+    """Resolves a TaskBlocker while blocking subtask owners from clearing others' escalations."""
+    blocker = TaskBlocker.query.filter_by(
+        id=blocker_id, organization_id=actor.organization_id
+    ).first()
+    if blocker is None:
+        raise TaskServiceError("Blocker record not found.")
+
+    if blocker.status == "resolved":
+        raise TaskServiceError("This blocker is already resolved.")
+
+    task = blocker.task
+    project = task.project
+    _assert_project_mutable(project)
+
+    is_lead_or_admin = actor.role == "super_admin" or project.lead_id == actor.id
+    is_original_raiser = blocker.raised_by_id == actor.id
+
+    if not (is_lead_or_admin or is_original_raiser):
+        raise TaskServiceError(
+            "You cannot clear an escalation or blocker raised by another team member or Lead."
+        )
+
+    clean_note = (resolution_note or "").strip()
+    if len(clean_note) < 3:
+        raise TaskServiceError("Please enter a brief resolution note (at least 3 characters).")
+
+    blocker.status = "resolved"
+    blocker.resolved_by_id = actor.id
+    blocker.resolution_note = clean_note
+    blocker.resolved_at = utc_now()
+    db.session.flush()
+    _sync_task_blocker_flags(task)
+
+    db.session.add(
+        AuditLog(
+            organization_id=actor.organization_id,
+            actor_id=actor.id,
+            project_id=project.id,
+            target_type="task",
+            target_id=task.id,
+            action="task_blocker_resolved",
+            reason=clean_note,
+            diff_payload={
+                "blocker_id": blocker.id,
+                "blocker_type": blocker.blocker_type,
+                "task_is_blocked": task.is_blocked,
+            },
+        )
+    )
+    db.session.commit()
+    return blocker
+
 
 def extend_task_deadline(
     *,
@@ -683,6 +832,12 @@ def extend_task_deadline(
     clean_reason = (reason or "").strip()
     if len(clean_reason) < 5:
         raise TaskServiceError("An audit reason (at least 5 characters) is required for deadline extensions.")
+
+    min_reason_len = 15 if task.priority in ("high", "critical") else 5
+    if len(clean_reason) < min_reason_len:
+        raise TaskServiceError(
+            f"A detailed audit justification (at least {min_reason_len} characters) is required to extend a {task.priority}-priority task."
+        )
 
     if new_due_date <= task.due_date:
         raise TaskServiceError("New due date must be later than the current due date.")

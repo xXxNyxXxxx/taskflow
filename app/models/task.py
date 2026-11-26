@@ -117,6 +117,13 @@ class Task(db.Model):
     comments: Mapped[list["TaskComment"]] = relationship(
         back_populates="task", cascade="all, delete-orphan"
     )
+
+    blockers: Mapped[list["TaskBlocker"]] = relationship(
+    back_populates="task",
+    cascade="all, delete-orphan",
+    order_by="TaskBlocker.created_at.desc()",
+)
+    
     point_ledger_entry: Mapped["PointLedger | None"] = relationship(
         back_populates="task", uselist=False
     )
@@ -174,3 +181,57 @@ class TaskComment(db.Model):
 
     task: Mapped["Task"] = relationship(back_populates="comments")
     author: Mapped["User"] = relationship()
+
+
+class TaskBlocker(db.Model):
+    __tablename__ = "task_blockers"
+    __table_args__ = (
+        CheckConstraint(
+            "blocker_type IN ('help_request', 'delay_escalation', 'client_blocked', 'technical')",
+            name="valid_task_blocker_record_type",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'resolved')",
+            name="valid_task_blocker_status",
+        ),
+        Index("ix_task_blockers_task_status", "task_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    raised_by_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    blocker_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="help_request"
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", index=True
+    )
+    resolved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    task: Mapped["Task"] = relationship(back_populates="blockers")
+    raised_by: Mapped["User"] = relationship(foreign_keys=[raised_by_id])
+    resolved_by: Mapped["User | None"] = relationship(foreign_keys=[resolved_by_id])
+
+    @property
+    def duration_hours(self) -> float | None:
+        if not self.resolved_at or not self.created_at:
+            return None
+        delta = self.resolved_at - self.created_at
+        return round(delta.total_seconds() / 3600, 1)

@@ -475,30 +475,49 @@
                       <button type="submit" class="tf-btn" style="padding: 0.15rem 0.45rem; font-size: 0.72rem;">Assign</button>
                     </form>
                   {% elif can_escalate_sub %}
-                    {% if not sub.is_blocked %}
-                      <details style="margin-top: 0.25rem;">
-                        <summary style="margin: 0; font-size: 0.72rem;">
-                          {% if is_task_owner and not is_sub_assignee and sub.assignee_id is not none %}
-                            Escalate Delay
-                          {% else %}
-                            Request Help
-                          {% endif %}
-                        </summary>
-                        <form method="POST" action="{{ url_for('board.blocker', task_id=sub.id) }}" style="margin-top: 0.3rem; display: flex; gap: 0.3rem;">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                          <input type="hidden" name="action" value="set" />
-                          <input type="hidden" name="blocker_type" value="internal" />
-                          <input type="text" name="blocker_reason" class="tf-mini-input" style="padding: 0.22rem 0.4rem; font-size: 0.73rem;" placeholder="Reason for Lead escalation..." required />
-                          <button type="submit" class="tf-btn" style="padding: 0.2rem 0.45rem; font-size: 0.72rem; white-space: nowrap;">Escalate</button>
-                        </form>
-                      </details>
-                    {% elif is_sub_assignee or is_task_owner %}
-                      <form method="POST" action="{{ url_for('board.blocker', task_id=sub.id) }}" style="margin-top: 0.3rem;">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                        <input type="hidden" name="action" value="clear" />
-                        <button type="submit" class="tf-btn" style="padding: 0.15rem 0.45rem; font-size: 0.71rem;">Clear Escalation</button>
-                      </form>
+                    {% set open_sub_blockers = sub.blockers|selectattr('status', 'equalto', 'open')|list %}
+                    {% if open_sub_blockers %}
+                      <div style="margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.3rem;">
+                        {% for b in open_sub_blockers %}
+                          <div style="padding: 0.3rem 0.45rem; border-radius: var(--radius-sm); background-color: var(--status-urgent-bg); font-size: 0.72rem;">
+                            <strong>{{ b.blocker_type.replace('_', ' ')|title }}</strong>
+                            <span style="color: var(--text-secondary);">by {{ b.raised_by.full_name }}:</span>
+                            {{ b.reason }}
+                            {% if is_lead_or_admin or b.raised_by_id == current_user.id %}
+                              <form method="POST" action="{{ url_for('board.resolve_blocker', blocker_id=b.id) }}" style="margin-top: 0.25rem; display: flex; gap: 0.25rem;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                                <input type="text" name="resolution_note" class="tf-mini-input" style="padding: 0.18rem 0.35rem; font-size: 0.71rem;" placeholder="Resolution note (min 3 chars)..." minlength="3" required />
+                                <button type="submit" class="tf-btn" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; white-space: nowrap;">Resolve</button>
+                              </form>
+                            {% else %}
+                              <div style="margin-top: 0.2rem; font-size: 0.69rem; color: var(--text-secondary);">
+                                Only the raiser or Project Lead can clear this escalation.
+                              </div>
+                            {% endif %}
+                          </div>
+                        {% endfor %}
+                      </div>
                     {% endif %}
+
+                    <details style="margin-top: 0.25rem;">
+                      <summary style="margin: 0; font-size: 0.72rem;">
+                        {% if is_task_owner and not is_sub_assignee and sub.assignee_id is not none %}
+                          Escalate Delay
+                        {% else %}
+                          Ask for Help / Log Hurdle
+                        {% endif %}
+                      </summary>
+                      <form method="POST" action="{{ url_for('board.raise_blocker', task_id=sub.id) }}" style="margin-top: 0.3rem; display: flex; gap: 0.3rem;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                        <input
+                          type="hidden"
+                          name="blocker_type"
+                          value="{{ 'delay_escalation' if (is_task_owner and not is_sub_assignee and sub.assignee_id is not none) else 'help_request' }}"
+                        />
+                        <input type="text" name="reason" class="tf-mini-input" style="padding: 0.22rem 0.4rem; font-size: 0.73rem;" placeholder="Describe hurdle or delay (min 5 chars)..." minlength="5" required />
+                        <button type="submit" class="tf-btn" style="padding: 0.2rem 0.45rem; font-size: 0.72rem; white-space: nowrap;">Log</button>
+                      </form>
+                    </details>
                   {% endif %}
                 </div>
               {% endfor %}
@@ -560,25 +579,67 @@
                 </form>
 
                 <!-- Blocker Flag Toggle -->
-                {% if not task.is_blocked %}
-                  <form method="POST" action="{{ url_for('board.blocker', task_id=task.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem;">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                    <input type="hidden" name="action" value="set" />
-                    <div style="display: flex; gap: 0.35rem;">
-                      <select name="blocker_type" class="tf-mini-select">
-                        <option value="client">Client Blocker</option>
-                        <option value="internal">Internal Blocker</option>
-                      </select>
-                      <input type="text" name="blocker_reason" class="tf-mini-input" placeholder="Why blocked?" required />
+                {% set open_blockers = task.blockers|selectattr('status', 'equalto', 'open')|list %}
+                {% if open_blockers %}
+                  <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    {% for b in open_blockers %}
+                      <div style="padding: 0.4rem 0.55rem; border-radius: var(--radius-sm); background-color: var(--status-urgent-bg); font-size: 0.75rem;">
+                        <div>
+                          <strong>{{ b.blocker_type.replace('_', ' ')|title }}</strong>
+                          <span style="color: var(--text-secondary);">· {{ b.raised_by.full_name }}</span>
+                        </div>
+                        <div style="margin-top: 0.15rem;">{{ b.reason }}</div>
+                        {% if is_lead_or_admin or b.raised_by_id == current_user.id %}
+                          <form method="POST" action="{{ url_for('board.resolve_blocker', blocker_id=b.id) }}" style="margin-top: 0.35rem; display: flex; gap: 0.3rem;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                            <input type="text" name="resolution_note" class="tf-mini-input" placeholder="Resolution note..." minlength="3" required />
+                            <button type="submit" class="tf-btn" style="font-size: 0.74rem; white-space: nowrap;">Resolve</button>
+                          </form>
+                        {% endif %}
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+
+                <form method="POST" action="{{ url_for('board.raise_blocker', task_id=task.id) }}" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <div style="display: flex; gap: 0.35rem;">
+                    <select name="blocker_type" class="tf-mini-select">
+                      <option value="client_blocked">Client Blocked</option>
+                      <option value="technical">Technical Hurdle</option>
+                      <option value="help_request">Ask for Help</option>
+                    </select>
+                    <input type="text" name="reason" class="tf-mini-input" placeholder="Why blocked? (min 5 chars)" minlength="5" required />
+                  </div>
+                  <button type="submit" class="tf-btn" style="font-size: 0.76rem; justify-content: center;">Log Blocker</button>
+                </form>
+
+                <!-- Role-Scoped Blocker & Escalation History -->
+                {% set visible_history = task.blockers if is_lead_or_admin else task.blockers|selectattr('raised_by_id', 'equalto', current_user.id)|list %}
+                {% if visible_history %}
+                  <details style="margin-top: 0.2rem;">
+                    <summary style="margin: 0; font-size: 0.74rem;">
+                      {% if is_lead_or_admin %}Blocker &amp; Escalation History ({{ visible_history|length }}){% else %}My Logged Hurdles ({{ visible_history|length }}){% endif %}
+                    </summary>
+                    <div style="margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.3rem;">
+                      {% for h in visible_history %}
+                        <div style="font-size: 0.73rem; padding: 0.35rem 0.5rem; background-color: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+                          <div style="display: flex; justify-content: space-between; gap: 0.35rem;">
+                            <strong>{{ h.blocker_type.replace('_', ' ')|title }}</strong>
+                            <span style="color: var(--text-secondary); text-transform: capitalize;">
+                              {{ h.status }}{% if h.duration_hours is not none %} · {{ h.duration_hours }}h{% endif %}
+                            </span>
+                          </div>
+                          <div>{{ h.reason }}</div>
+                          {% if h.status == 'resolved' and h.resolution_note %}
+                            <div style="color: var(--text-secondary); margin-top: 0.15rem;">
+                              Resolved by {{ h.resolved_by.full_name if h.resolved_by else 'System' }}: {{ h.resolution_note }}
+                            </div>
+                          {% endif %}
+                        </div>
+                      {% endfor %}
                     </div>
-                    <button type="submit" class="tf-btn" style="font-size: 0.76rem; justify-content: center;">Flag Blocker</button>
-                  </form>
-                {% else %}
-                  <form method="POST" action="{{ url_for('board.blocker', task_id=task.id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                    <input type="hidden" name="action" value="clear" />
-                    <button type="submit" class="tf-btn" style="width: 100%; font-size: 0.76rem; justify-content: center;">Clear Blocker</button>
-                  </form>
+                  </details>
                 {% endif %}
 
                 <!-- Deadline Extension (Lead/Admin Only) -->
@@ -593,7 +654,8 @@
                         <option value="internal">Internal Delay (Reduces Bonus)</option>
                       </select>
                     </div>
-                    <input type="text" name="reason" class="tf-mini-input" placeholder="Audit reason for extension..." required />
+                    {% set ext_min = 15 if task.priority in ('high', 'critical') else 5 %}
+                    <input type="text" name="reason" class="tf-mini-input" minlength="{{ ext_min }}" placeholder="Audit reason (min {{ ext_min }} chars for {{ task.priority }} priority)..." required />
                     <button type="submit" class="tf-btn" style="font-size: 0.76rem; justify-content: center;">Approve Extension</button>
                   </form>
                 {% endif %}

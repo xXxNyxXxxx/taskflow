@@ -14,7 +14,9 @@ from app.services.task_service import (
     reassign_task,
     respond_to_assignment,
     toggle_task_blocker,
-    request_task_reclaim
+    request_task_reclaim,
+    raise_task_blocker,
+    resolve_task_blocker
 )
 
 
@@ -245,3 +247,42 @@ def reclaim(task_id: int):
             return redirect(url_for("projects.board", project_id=task.project_id))
         except TaskServiceError:
             return redirect(url_for("projects.index"))
+
+@board_bp.post("/<int:task_id>/blockers/raise")
+@login_required
+def raise_blocker(task_id: int):
+    blocker_type = (request.form.get("blocker_type") or "help_request").strip()
+    reason = request.form.get("reason", "")
+    try:
+        blocker = raise_task_blocker(
+            task_id=task_id,
+            actor=current_user,
+            blocker_type=blocker_type,
+            reason=reason,
+        )
+        flash("Blocker / escalation logged.", "info")
+        return redirect(url_for("projects.board", project_id=blocker.task.project_id))
+    except TaskServiceError as exc:
+        flash(str(exc), "danger")
+        try:
+            task = get_tenant_task(task_id, current_user.organization_id)
+            return redirect(url_for("projects.board", project_id=task.project_id))
+        except TaskServiceError:
+            return redirect(url_for("projects.index"))
+
+
+@board_bp.post("/blockers/<int:blocker_id>/resolve")
+@login_required
+def resolve_blocker(blocker_id: int):
+    resolution_note = request.form.get("resolution_note", "")
+    try:
+        blocker = resolve_task_blocker(
+            blocker_id=blocker_id,
+            actor=current_user,
+            resolution_note=resolution_note,
+        )
+        flash("Blocker resolved and archived in task history.", "success")
+        return redirect(url_for("projects.board", project_id=blocker.task.project_id))
+    except TaskServiceError as exc:
+        flash(str(exc), "danger")
+        return redirect(request.referrer or url_for("projects.index"))

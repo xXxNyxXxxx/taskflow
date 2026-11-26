@@ -2,7 +2,7 @@ from datetime import date, timedelta
 import pytest
 from werkzeug.security import generate_password_hash
 
-from app.models import AuditLog, Organization, Project, Task, User
+from app.models import AuditLog, Organization, Project, Task, TaskBlocker, User
 from app.services.governance_service import (
     GovernanceServiceError,
     soft_remove_member,
@@ -14,6 +14,8 @@ from app.services.task_service import (
     create_task,
     extend_task_deadline,
     move_task_status,
+    raise_task_blocker,
+    resolve_task_blocker,
     respond_to_assignment,
     save_project_as_template,
     toggle_task_blocker,
@@ -453,3 +455,109 @@ def test_subtask_self_ownership_and_help_escalation_workflow(db_session):
         organization_id=org.id, target_id=subtask.id, action="subtask_help_assigned"
     ).first()
     assert assigned_log is not None
+
+
+def test_phase3_6_blocker_tracker_permissions_and_history(db_session):
+    org, admin, lead1, lead2, member = seed_workspace(db_session, slug="blk-org")
+    helper = User(
+        organization_id=org.id,
+        email="helper@blk.dev",
+        full_name="Helper Member",
+        password_hash="x",
+        role="member",
+        is_active=True,
+    )
+    db_session.add(helper)
+    db_session.commit()
+
+    project = create_project(
+        actor=lead1,
+        title="Blocker Audit Project",
+        description=None,
+        est_completion_date=date.today() + timedelta(days=15),
+    )
+    parent = create_task(
+        project_id=project.id,
+        actor=lead1,
+        title="Launch Landing Page",
+        due_date=date.today() + timedelta(days=10),
+        assignee_id=member.id,
+    )
+    subtask = create_task(
+        project_id=project.id,
+        actor=lead1,
+        title="Export Hero Assets",
+        due_date=date.today() + timedelta(days=5),
+        assignee_id=helper.id,
+        parent_task_id=parent.id,
+    )
+
+    # Main task owner escalates a delay on the subtask
+    esc = raise_task_blocker(
+        task_id=subtask.id,
+        actor=member,
+        blocker_type="delay_escalation",
+        reason="Hero assets are 2 days overdue and holding up launch.",
+    )
+    db_session.refresh(subtask)
+    assert subtask.is_blocked is True
+    assert subtask.blocker_type == "internal"
+
+    # Subtask owner CANNOT clear an escalation raised by the Main Task Owner
+    with pytest.raises(TaskServiceError, match="cannot clear an escalation"):
+        resolve_task_blocker(
+            blocker_id=esc.id,
+            actor=helper,
+            resolution_note="Trying to clear it myself",
+        )
+
+    # Project Lead resolves it; record stays in history as 'resolved' and clears task.is_blocked
+    resolve_task_blocker(
+        blocker_id=esc.id,
+        actor=lead1,
+        resolution_note="Reassigned asset export and unblocked launch.",
+    )
+    db_session.refresh(subtask)
+    db_session.refresh(esc)
+    assert esc.status == "resolved"
+    assert esc.resolved_by_id == lead1.id
+    assert subtask.is_blocked is False
+    assert TaskBlocker.query.filter_by(task_id=subtask.id).count() == 1
+
+
+def test_phase3_6_high_priority_extension_requires_detailed_reason(db_session):
+    org, admin, lead1, lead2, member = seed_workspace(db_session, slug="ext-org")
+    project = create_project(
+        actor=lead1,
+        title="Priority Extension Project",
+        description=None,
+        est_completion_date=date.today() + timedelta(days=20),
+    )
+    crit_task = create_task(
+        project_id=project.id,
+        actor=lead1,
+        title="Payment Gateway Cutover",
+        priority="critical",
+        due_date=date.today() + timedelta(days=5),
+        assignee_id=member.id,
+    )
+
+    # Short reason (< 15 chars) must be rejected for critical priority
+    with pytest.raises(TaskServiceError, match="at least 15 characters"):
+        extend_task_deadline(
+            task_id=crit_task.id,
+            actor=lead1,
+            new_due_date=date.today() + timedelta(days=8),
+            extension_type="client_blocked",
+            reason="Need more time",
+        )
+
+    # Detailed justification (>= 15 chars) succeeds
+    ext = extend_task_deadline(
+        task_id=crit_task.id,
+        actor=lead1,
+        new_due_date=date.today() + timedelta(days=8),
+        extension_type="client_blocked",
+        reason="Client payment processor sandbox credentials were delayed by 3 days.",
+    )
+    assert ext.new_due_date == date.today() + timedelta(days=8)

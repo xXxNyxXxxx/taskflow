@@ -3,6 +3,7 @@ from app.models.project import Project, ProjectShareLink, ProjectTemplate
 from app.models.task import DeadlineExtension, Task, TaskComment
 from app.models.tenant import InviteCode, Organization, OrganizationSettings
 from app.models.user import User
+from app.models.task import DeadlineExtension, Task, TaskBlocker, TaskComment
 
 __all__ = [
     "Organization",
@@ -17,4 +18,5 @@ __all__ = [
     "TaskComment",
     "PointLedger",
     "AuditLog",
+    "TaskBlocker",
 ]
