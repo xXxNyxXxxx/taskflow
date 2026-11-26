@@ -53,8 +53,12 @@ class TestingConfig(BaseConfig):
 
 
 def _normalize_db_url(raw_url: str | None) -> str | None:
-    if raw_url and raw_url.startswith("postgres://"):
-        return raw_url.replace("postgres://", "postgresql://", 1)
+    if not raw_url:
+        return raw_url
+    if raw_url.startswith("postgres://"):
+        return raw_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    if raw_url.startswith("postgresql://"):
+        return raw_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return raw_url
 
 
